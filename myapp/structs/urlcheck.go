@@ -27,6 +27,23 @@ type APIRequest struct {
 	Timestamp   time.Time
 }
 
+type SnapshotAction struct {
+	Type      string `json:"type"`                
+	Selector  string `json:"selector,omitempty"`  
+	Value     string `json:"value,omitempty"`     
+	Timestamp int64  `json:"timestamp,omitempty"` 
+	URL       string `json:"url,omitempty"`      
+}
+
+type Snapshot struct {
+	ID        string           `json:"id"`
+	URL       string           `json:"url"`
+	Name      string           `json:"name,omitempty"`
+	Actions   []SnapshotAction `json:"actions"`
+	CreatedAt time.Time        `json:"created_at"`
+}
+
+
 func (u *URLCheck) Check() {
 	resp, err := http.Get(u.URL)
 	if err != nil || resp.StatusCode != 200 {
