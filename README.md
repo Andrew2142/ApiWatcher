@@ -1,4 +1,4 @@
-# URL Checker
+# API Watcher
 
 A lightweight Go-based website monitoring tool that checks your websites for failing API calls and sends alert emails when issues are detected.
 
