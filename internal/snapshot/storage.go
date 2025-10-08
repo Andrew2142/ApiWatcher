@@ -90,3 +90,21 @@ func LoadAll() ([]*Snapshot, error) {
 	return results, nil
 }
 
+// LoadByID loads a specific snapshot by its ID
+func LoadByID(id string) (*Snapshot, error) {
+	dir := dirPath()
+	filename := filepath.Join(dir, id+".json")
+	
+	raw, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	
+	var s Snapshot
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, err
+	}
+	
+	return &s, nil
+}
+

@@ -15,7 +15,7 @@ import (
 func Replay(s *Snapshot) error {
 	// Chrome allocator options
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", false),
+		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-gpu", false),
 		chromedp.Flag("no-first-run", true),
 		chromedp.Flag("start-maximized", true),

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
+	"time"
 	"github.com/joho/godotenv"
 )
 
@@ -47,6 +47,15 @@ func init() {
 type Config struct {
 	Email    string   `json:"email"`
 	Websites []string `json:"websites"`
+}
+
+type SavedMonitorConfig struct {
+	Name        string            `json:"name"`         // User-friendly name
+	Email       string            `json:"email"`
+	Websites    []string          `json:"websites"`
+	SnapshotIDs map[string]string `json:"snapshot_ids"` // URL -> Snapshot ID mapping
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
 }
 
 // ==========================
@@ -106,5 +115,119 @@ func PromptUser() *Config {
 	Save(cfg)
 	fmt.Println("✅ Configuration saved to", path())
 	return cfg
+}
+
+// savedConfigsPath returns the path to saved monitor configurations
+func savedConfigsPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal("Cannot find home directory:", err)
+	}
+	return filepath.Join(home, ".url-checker", "saved-configs")
+}
+
+// SaveMonitorConfig saves a complete monitoring configuration
+func SaveMonitorConfig(name, email string, websites []string, snapshotIDs map[string]string) error {
+	dir := savedConfigsPath()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	config := SavedMonitorConfig{
+		Name:        name,
+		Email:       email,
+		Websites:    websites,
+		SnapshotIDs: snapshotIDs,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	filename := filepath.Join(dir, sanitizeFilename(name)+".json")
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filename, data, 0644)
+}
+
+// LoadAllSavedConfigs returns all saved monitor configurations
+func LoadAllSavedConfigs() ([]*SavedMonitorConfig, error) {
+	dir := savedConfigsPath()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []*SavedMonitorConfig{}, nil
+		}
+		return nil, err
+	}
+
+	var results []*SavedMonitorConfig
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var config SavedMonitorConfig
+		if err := json.Unmarshal(raw, &config); err != nil {
+			continue
+		}
+		results = append(results, &config)
+	}
+	return results, nil
+}
+
+// sanitizeFilename makes a string safe for use as a filename
+func sanitizeFilename(name string) string {
+	// Replace spaces with underscores and remove special characters
+	name = strings.ReplaceAll(name, " ", "_")
+	name = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			return r
+		}
+		return -1
+	}, name)
+	return name
+}
+
+// PromptSelectSavedConfig allows user to select from saved configurations
+func PromptSelectSavedConfig() (*SavedMonitorConfig, error) {
+	savedConfigs, err := LoadAllSavedConfigs()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(savedConfigs) == 0 {
+		return nil, nil // No saved configs
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("\n=== Saved Monitor Configurations ===")
+	for i, cfg := range savedConfigs {
+		snapshotCount := len(cfg.SnapshotIDs)
+		fmt.Printf("%d [%s]\n", i+1, cfg.Name)
+		fmt.Printf("   Email: %s | Sites: %d | Snapshots: %d\n", 
+			cfg.Email, len(cfg.Websites), snapshotCount)
+		fmt.Printf("   Created: %s\n", cfg.CreatedAt.Format("2006-01-02 15:04:05"))
+	}
+
+	fmt.Println("\nSelect a configuration (enter number, or 0 to create new):")
+	fmt.Print("> ")
+	choiceLine, _ := reader.ReadString('\n')
+	choiceLine = strings.TrimSpace(choiceLine)
+	
+	idx, err := strconv.Atoi(choiceLine)
+	if err != nil || idx < 0 || idx > len(savedConfigs) {
+		fmt.Println("Invalid selection")
+		return nil, nil
+	}
+
+	if idx == 0 {
+		return nil, nil // User wants to create new
+	}
+
+	return savedConfigs[idx-1], nil
 }
 
