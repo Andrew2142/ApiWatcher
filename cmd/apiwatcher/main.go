@@ -10,7 +10,6 @@ import (
 	"url-checker/internal/snapshot"
 )
 
-var ShowWorkerBrowser = true
 
 func main() {
 	var cfg *config.Config
@@ -34,19 +33,7 @@ func main() {
 	}
 
 	//Snapshot prep
-	fmt.Println("Would you like to see the snapshot replay in Chrome? (y/n)")
-	var seeBrowser string
-	fmt.Print("> ")
-	fmt.Scanln(&seeBrowser)
-	ShowWorkerBrowser = strings.ToLower(seeBrowser) == "y"
-	snapshot.PromptSnapshotFlow(cfg)
-
-	//Load snapshots
-	allSnapshots, _ := snapshot.LoadAll()
-	snapshotsByURL := map[string]*snapshot.Snapshot{}
-	for _, s := range allSnapshots {
-		snapshotsByURL[s.URL] = s
-	}
+	snapshotsByURL := snapshot.PromptSnapshotFlow(cfg)
 
 
 	//Start workers
@@ -61,6 +48,14 @@ func main() {
 
 
 	//Monitor
+	fmt.Println("Would you like to save this configuration for later (y/n)")
+	var choice string
+	fmt.Print("> ")
+	fmt.Scanln(&choice)
+
+	if strings.ToLower(choice) != "y" {
+		return
+	}
 	for {
 		for _, site := range cfg.Websites {
 			jobQueue <- monitor.Job{
