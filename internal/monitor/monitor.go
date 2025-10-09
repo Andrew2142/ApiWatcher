@@ -3,11 +3,9 @@ package monitor
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 	"url-checker/internal/config"
 	"url-checker/internal/models"
-
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 )
@@ -26,7 +24,7 @@ func CheckWebsite(url string) ([]*models.APIRequest, error) {
 			apiURL := resp.Response.URL
 
 			// Skip static file types
-			if isStaticAsset(apiURL) {
+			if config.IsStaticAsset(apiURL) {
 				return
 			}
 
@@ -54,25 +52,6 @@ func CheckWebsite(url string) ([]*models.APIRequest, error) {
 	return badRequests, nil
 }
 
-
-func isStaticAsset(url string) bool {
-	if idx := strings.IndexAny(url, "?#"); idx != -1 {
-		url = url[:idx]
-	}
-	lower := strings.ToLower(url)
-	// Skip by extension
-	exts := []string{".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".ico", ".woff", ".woff2", ".ttf"}
-	for _, ext := range exts {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	// Skip specific domains (optional)
-	if strings.Contains(lower, "fonts.gstatic.com") || strings.Contains(lower, "cdn.example.com") {
-		return true
-	}
-	return false
-}
 
 
 

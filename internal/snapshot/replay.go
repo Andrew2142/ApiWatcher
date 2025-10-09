@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
+	"url-checker/internal/config"
 )
+
+
 
 // Replay runs a saved snapshot in Chrome.
 // It respects ShowWorkerBrowser: if true, opens a visible Chrome window.
@@ -32,7 +34,7 @@ func Replay(s *Snapshot) error {
 		if ev, ok := ev.(*network.EventResponseReceived); ok {
 			if ev.Response.Status >= 400 {
 				apiURL := ev.Response.URL
-				if !isStaticAsset(apiURL) {
+				if !config.IsStaticAsset(apiURL) {
 					log.Printf("[SNAPSHOT] API error detected: %d %s\n", int(ev.Response.Status), ev.Response.URL)
 				}
 			}
@@ -99,22 +101,4 @@ func Replay(s *Snapshot) error {
 	return nil
 }
 
-func isStaticAsset(url string) bool {
-	if idx := strings.IndexAny(url, "?#"); idx != -1 {
-		url = url[:idx]
-	}
-	lower := strings.ToLower(url)
-	// Skip by extension
-	exts := []string{".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".ico", ".woff", ".woff2", ".ttf"}
-	for _, ext := range exts {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	// Skip specific domains (optional)
-	if strings.Contains(lower, "fonts.gstatic.com") || strings.Contains(lower, "cdn.example.com") {
-		return true
-	}
-	return false
-}
 
