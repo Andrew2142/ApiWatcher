@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
-
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 )
@@ -28,10 +28,13 @@ func Replay(s *Snapshot) error {
 	defer cancelCtx()
 
 	// Listen for network responses to catch API errors
-	chromedp.ListenTarget(ctx, func(ev interface{}) {
+	chromedp.ListenTarget(ctx, func(ev any) {
 		if ev, ok := ev.(*network.EventResponseReceived); ok {
 			if ev.Response.Status >= 400 {
-				log.Printf("[SNAPSHOT] API error detected: %d %s\n", int(ev.Response.Status), ev.Response.URL)
+				apiURL := ev.Response.URL
+				if !isStaticAsset(apiURL) {
+					log.Printf("[SNAPSHOT] API error detected: %d %s\n", int(ev.Response.Status), ev.Response.URL)
+				}
 			}
 		}
 	})
@@ -94,5 +97,24 @@ func Replay(s *Snapshot) error {
 
 	log.Printf("[SNAPSHOT] Replay finished for %s (%s)\n", s.URL, s.ID)
 	return nil
+}
+
+func isStaticAsset(url string) bool {
+	if idx := strings.IndexAny(url, "?#"); idx != -1 {
+		url = url[:idx]
+	}
+	lower := strings.ToLower(url)
+	// Skip by extension
+	exts := []string{".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".ico", ".woff", ".woff2", ".ttf"}
+	for _, ext := range exts {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	// Skip specific domains (optional)
+	if strings.Contains(lower, "fonts.gstatic.com") || strings.Contains(lower, "cdn.example.com") {
+		return true
+	}
+	return false
 }
 

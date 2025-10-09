@@ -208,8 +208,11 @@ func PromptSelectSavedConfig() (*SavedMonitorConfig, error) {
 	for i, cfg := range savedConfigs {
 		snapshotCount := len(cfg.SnapshotIDs)
 		fmt.Printf("%d [%s]\n", i+1, cfg.Name)
-		fmt.Printf("   Email: %s | Sites: %d | Snapshots: %d\n", 
-			cfg.Email, len(cfg.Websites), snapshotCount)
+		fmt.Printf("   Email: %s | Sites: %s | Snapshots: %d\n",
+			cfg.Email,
+			strings.Join(cfg.Websites, ", "),
+			snapshotCount)
+
 		fmt.Printf("   Created: %s\n", cfg.CreatedAt.Format("2006-01-02 15:04:05"))
 	}
 
@@ -217,7 +220,7 @@ func PromptSelectSavedConfig() (*SavedMonitorConfig, error) {
 	fmt.Print("> ")
 	choiceLine, _ := reader.ReadString('\n')
 	choiceLine = strings.TrimSpace(choiceLine)
-	
+
 	idx, err := strconv.Atoi(choiceLine)
 	if err != nil || idx < 0 || idx > len(savedConfigs) {
 		fmt.Println("Invalid selection")

@@ -26,20 +26,10 @@ func CheckWebsite(url string) ([]*models.APIRequest, error) {
 			apiURL := resp.Response.URL
 
 			// Skip static file types
-			lower := strings.ToLower(apiURL)
-			if strings.HasSuffix(lower, ".js") ||
-			strings.HasSuffix(lower, ".css") ||
-			strings.HasSuffix(lower, ".png") ||
-			strings.HasSuffix(lower, ".jpg") ||
-			strings.HasSuffix(lower, ".jpeg") ||
-			strings.HasSuffix(lower, ".svg") ||
-			strings.HasSuffix(lower, ".gif") ||
-			strings.HasSuffix(lower, ".ico") ||
-			strings.HasSuffix(lower, ".woff") ||
-			strings.HasSuffix(lower, ".woff2") ||
-			strings.HasSuffix(lower, ".ttf") {
+			if isStaticAsset(apiURL) {
 				return
 			}
+
 
 			status := int(resp.Response.Status)
 			//fmt.Printf("[INFO] %d %s\n", status, apiURL)
@@ -63,4 +53,26 @@ func CheckWebsite(url string) ([]*models.APIRequest, error) {
 
 	return badRequests, nil
 }
+
+
+func isStaticAsset(url string) bool {
+	if idx := strings.IndexAny(url, "?#"); idx != -1 {
+		url = url[:idx]
+	}
+	lower := strings.ToLower(url)
+	// Skip by extension
+	exts := []string{".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".ico", ".woff", ".woff2", ".ttf"}
+	for _, ext := range exts {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	// Skip specific domains (optional)
+	if strings.Contains(lower, "fonts.gstatic.com") || strings.Contains(lower, "cdn.example.com") {
+		return true
+	}
+	return false
+}
+
+
 
