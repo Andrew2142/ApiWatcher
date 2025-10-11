@@ -5,23 +5,23 @@ import (
 	"fmt"
 	"log"
 	"time"
+	"url-checker/internal/config"
+	"url-checker/internal/models"
+
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
-	"url-checker/internal/config"
 )
-
-
 
 // Replay runs a saved snapshot in Chrome.
 // It respects ShowWorkerBrowser: if true, opens a visible Chrome window.
 func Replay(s *Snapshot) error {
 	// Chrome allocator options
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", true),
+		chromedp.Flag("headless", false),
 		chromedp.Flag("disable-gpu", false),
 		chromedp.Flag("no-first-run", true),
 		chromedp.Flag("start-maximized", true),
-		)
+	)
 
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancelAlloc()
@@ -40,9 +40,8 @@ func Replay(s *Snapshot) error {
 			}
 		}
 	})
-
 	// timeout to prevent infinite hangs
-	runCtx, cancelRun := context.WithTimeout(ctx, 30*time.Second) // longer if needed
+	runCtx, cancelRun := context.WithTimeout(ctx, 120*time.Second) // longer if needed
 	defer cancelRun()
 
 	log.Printf("[SNAPSHOT] Starting replay for %s (%s)\n", s.URL, s.ID)
@@ -51,13 +50,15 @@ func Replay(s *Snapshot) error {
 	if err := chromedp.Run(runCtx,
 		chromedp.Navigate(s.URL),
 		chromedp.WaitVisible("body", chromedp.ByQuery),
-		chromedp.Sleep(500*time.Millisecond),      	
-		); err != nil {
+		chromedp.Sleep(5000*time.Millisecond),
+	); err != nil {
 		return fmt.Errorf("initial navigation failed: %w", err)
 	}
 
+	var filteredActions = PreprocessActions(s.Actions)
+
 	// Replay all actions
-	for i, a := range s.Actions {
+	for i, a := range filteredActions {
 		switch a.Type {
 		case "navigate":
 			if a.URL != "" {
@@ -65,7 +66,7 @@ func Replay(s *Snapshot) error {
 				if err := chromedp.Run(runCtx,
 					chromedp.Navigate(a.URL),
 					chromedp.WaitVisible("body", chromedp.ByQuery),
-					); err != nil {
+				); err != nil {
 					log.Printf("[SNAPSHOT] navigation failed: %v\n", err)
 				}
 			}
@@ -74,7 +75,7 @@ func Replay(s *Snapshot) error {
 				log.Printf("[SNAPSHOT] Action %d: click -> %s\n", i+1, a.Selector)
 				if err := chromedp.Run(runCtx,
 					chromedp.Click(a.Selector, chromedp.NodeVisible),
-					); err != nil {
+				); err != nil {
 					log.Printf("[SNAPSHOT] click failed: %v\n", err)
 				}
 			}
@@ -85,7 +86,7 @@ func Replay(s *Snapshot) error {
 					chromedp.Click(a.Selector, chromedp.NodeVisible),
 					chromedp.Sleep(150*time.Millisecond),
 					chromedp.SendKeys(a.Selector, a.Value, chromedp.NodeVisible),
-					); err != nil {
+				); err != nil {
 					log.Printf("[SNAPSHOT] input failed: %v\n", err)
 				}
 			}
@@ -93,7 +94,7 @@ func Replay(s *Snapshot) error {
 			log.Printf("[SNAPSHOT] Action %d: unknown type '%s', skipping\n", i+1, a.Type)
 		}
 
-		// pause to see actions
+		// Small delay between actions
 		_ = chromedp.Run(runCtx, chromedp.Sleep(500*time.Millisecond))
 	}
 
@@ -101,4 +102,29 @@ func Replay(s *Snapshot) error {
 	return nil
 }
 
+// PreprocessActions filters out intermediate input events
+func PreprocessActions(actions []models.SnapshotAction) []models.SnapshotAction {
+	var filtered []models.SnapshotAction
+	for i := 0; i < len(actions); i++ {
+		a := actions[i]
+		// Go to end of array for input
+		if a.Type == "input" {
+			last := a
+			for j := i + 1; j < len(actions); j++ {
+				next := actions[j]
+				// Stop
+				if next.Type != "input" || next.Selector != a.Selector {
+					break
+				}
+				last = next
+				i = j
+			}
+			filtered = append(filtered, last)
+			continue
+		}
 
+		// Keep non-input actions as is
+		filtered = append(filtered, a)
+	}
+	return filtered
+}
