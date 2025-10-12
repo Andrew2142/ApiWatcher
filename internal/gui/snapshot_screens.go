@@ -216,7 +216,9 @@ func (s *AppState) showCreateSnapshotScreen(url string, sites []string, currentI
 			}
 
 			// Move to next site
-			s.showSnapshotForSite(sites, currentIndex+1)
+			fyne.Do(func() {
+				s.showSnapshotForSite(sites, currentIndex+1)
+			})
 		}()
 	})
 

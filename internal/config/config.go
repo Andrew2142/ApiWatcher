@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	"github.com/joho/godotenv"
 )
 
@@ -50,7 +51,7 @@ type Config struct {
 }
 
 type SavedMonitorConfig struct {
-	Name        string            `json:"name"`         // User-friendly name
+	Name        string            `json:"name"` // User-friendly name
 	Email       string            `json:"email"`
 	Websites    []string          `json:"websites"`
 	SnapshotIDs map[string]string `json:"snapshot_ids"` // URL -> Snapshot ID mapping
@@ -252,5 +253,3 @@ func IsStaticAsset(url string) bool {
 	}
 	return false
 }
-
-

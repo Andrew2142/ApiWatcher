@@ -121,3 +121,26 @@ Update `SMTP_FROM`, `SMTP_USER`, `SMTP_PASS`, `SMTP_HOST`, and `SMTP_PORT` accor
 
 MIT License © Legend
 
+
+
+INSTALL DAEMON ON SERVER
+
+cd ~/dev/ApiWatcher && go build -o apiwatcher-daemon ./cmd/apiwatcher-daemon && mkdir -p ~/.apiwatcher/bin && mv apiwatcher-daemon ~/.apiwatcher/bin/ && pkill -f apiwatcher-daemon; chmod +x ~/.apiwatcher/bin/apiwatcher-daemon && nohup ~/.apiwatcher/bin/apiwatcher-daemon > ~/.apiwatcher/logs/daemon.log 2>&1 & tail -f ~/.apiwatcher/logs/daemon.log
+
+# 1. Navigate to your project (you're probably close)
+cd ~/dev/ApiWatcher
+
+# 2. Build the daemon
+go build -o apiwatcher-daemon ./cmd/apiwatcher-daemon
+
+# 3. Move to the correct location
+mkdir -p ~/.apiwatcher/bin
+mv apiwatcher-daemon ~/.apiwatcher/bin/
+
+# 4. Restart daemon
+pkill -f apiwatcher-daemon
+chmod +x ~/.apiwatcher/bin/apiwatcher-daemon
+nohup ~/.apiwatcher/bin/apiwatcher-daemon > ~/.apiwatcher/logs/daemon.log 2>&1 &
+
+# 5. Watch logs
+tail -f ~/.apiwatcher/logs/daemon.log

@@ -13,9 +13,9 @@ import (
 // Job Structure
 // ==========================
 type Job struct {
-	Website string
-	Email   string
-	Snapshot *snapshot.Snapshot 
+	Website  string
+	Email    string
+	Snapshot *snapshot.Snapshot
 }
 
 // ==========================
@@ -31,16 +31,16 @@ func Worker(id int, jobs <-chan Job) {
 func ProcessJob(id int, job Job) error {
 	startTime := time.Now()
 	log.Printf("[WORKER %d] ⏱️  START checking %s", id, job.Website)
-	
+
 	// Check the website
 	badRequests, err := CheckWebsite(job.Website)
 	checkDuration := time.Since(startTime)
-	
+
 	if err != nil {
 		log.Printf("[WORKER %d] ❌ ERROR after %v: %v", id, checkDuration, err)
 		return err
 	}
-	
+
 	log.Printf("[WORKER %d] 🔍 Scan completed in %v for %s", id, checkDuration, job.Website)
 
 	// Load alert log
@@ -73,7 +73,7 @@ func ProcessJob(id int, job Job) error {
 	} else {
 		log.Println("[OK] No API errors detected for", job.Website)
 	}
-	
+
 	// Run snapshot if configured
 	if job.Snapshot != nil {
 		log.Printf("[WORKER %d] Running snapshot for %s\n", id, job.Website)
@@ -83,7 +83,6 @@ func ProcessJob(id int, job Job) error {
 			log.Printf("[WORKER %d] Snapshot replay finished for %s (%s)\n", id, job.Website, job.Snapshot.ID)
 		}
 	}
-	
+
 	return nil
 }
-

@@ -46,7 +46,7 @@ func (s *AppState) showSSHConnectionScreen() {
 				}
 			}
 		})
-		
+
 		// Select last connected server if available
 		selectedName := serverNames[0]
 		if lastServer != "" {
@@ -187,17 +187,23 @@ func (s *AppState) showNewServerScreen() {
 		go func() {
 			conn, err := remote.Connect(config)
 			if err != nil {
-				dialog.ShowError(fmt.Errorf("connection failed: %v", err), s.window)
+				fyne.Do(func() {
+					dialog.ShowError(fmt.Errorf("connection failed: %v", err), s.window)
+				})
 				return
 			}
 			defer conn.Close()
 
 			if err := conn.TestConnection(); err != nil {
-				dialog.ShowError(fmt.Errorf("connection test failed: %v", err), s.window)
+				fyne.Do(func() {
+					dialog.ShowError(fmt.Errorf("connection test failed: %v", err), s.window)
+				})
 				return
 			}
 
-			dialog.ShowInformation("Success", "Connection successful!", s.window)
+			fyne.Do(func() {
+				dialog.ShowInformation("Success", "Connection successful!", s.window)
+			})
 		}()
 	})
 
@@ -292,8 +298,10 @@ func (s *AppState) connectToServer(config *remote.SSHConfig) {
 		// Connect to SSH
 		conn, err := remote.Connect(config)
 		if err != nil {
-			progress.Hide()
-			dialog.ShowError(fmt.Errorf("connection failed: %v", err), s.window)
+			fyne.Do(func() {
+				progress.Hide()
+				dialog.ShowError(fmt.Errorf("connection failed: %v", err), s.window)
+			})
 			return
 		}
 
@@ -303,20 +311,27 @@ func (s *AppState) connectToServer(config *remote.SSHConfig) {
 		// Check daemon status
 		installed, err := conn.CheckDaemonInstalled()
 		if err != nil {
-			progress.Hide()
-			dialog.ShowError(fmt.Errorf("failed to check daemon: %v", err), s.window)
+			fyne.Do(func() {
+				progress.Hide()
+				dialog.ShowError(fmt.Errorf("failed to check daemon: %v", err), s.window)
+			})
 			return
 		}
 
-		progress.Hide()
-		
+		fyne.Do(func() {
+			progress.Hide()
+		})
+
 		if !installed {
 			// Daemon not installed - show setup wizard
-			s.showDaemonSetupScreen()
+			fyne.Do(func() {
+				s.showDaemonSetupScreen()
+			})
 		} else {
 			// Daemon installed - connect to it
-			s.connectToDaemon()
+			fyne.Do(func() {
+				s.connectToDaemon()
+			})
 		}
 	}()
 }
-

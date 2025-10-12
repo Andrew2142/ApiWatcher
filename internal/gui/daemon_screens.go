@@ -23,8 +23,10 @@ func (s *AppState) connectToDaemon() {
 		// Start SSH tunnel
 		localPort, err := s.sshConn.StartTunnel()
 		if err != nil {
-			progress.Hide()
-			dialog.ShowError(fmt.Errorf("failed to start tunnel: %v", err), s.window)
+			fyne.Do(func() {
+				progress.Hide()
+				dialog.ShowError(fmt.Errorf("failed to start tunnel: %v", err), s.window)
+			})
 			return
 		}
 
@@ -35,42 +37,58 @@ func (s *AppState) connectToDaemon() {
 
 		// Connect to daemon
 		if err := s.daemonClient.Connect(); err != nil {
-			progress.Hide()
-			dialog.ShowError(fmt.Errorf("failed to connect to daemon: %v", err), s.window)
+			fyne.Do(func() {
+				progress.Hide()
+				dialog.ShowError(fmt.Errorf("failed to connect to daemon: %v", err), s.window)
+			})
 			return
 		}
 
 		// Get daemon status
 		status, err := s.daemonClient.GetStatus()
 		if err != nil {
-			progress.Hide()
-			dialog.ShowError(fmt.Errorf("failed to get daemon status: %v", err), s.window)
+			fyne.Do(func() {
+				progress.Hide()
+				dialog.ShowError(fmt.Errorf("failed to get daemon status: %v", err), s.window)
+			})
 			return
 		}
 
 		log.Printf("Connected to daemon. State: %s, HasConfig: %v", status.State, status.HasConfig)
 
-		progress.Hide()
+		fyne.Do(func() {
+			progress.Hide()
+		})
 
 		// Show appropriate screen based on daemon state
 		switch status.State {
 		case daemon.StateRunning:
 			// Monitoring is active
-			s.showDashboardScreen()
+			fyne.Do(func() {
+				s.showDashboardScreen()
+			})
 		case daemon.StatePaused:
 			// Monitoring is paused
-			s.showDashboardScreen()
+			fyne.Do(func() {
+				s.showDashboardScreen()
+			})
 		case daemon.StateStopped:
 			if status.HasConfig {
 				// Has config but not running
-				s.showDaemonStoppedScreen()
+				fyne.Do(func() {
+					s.showDaemonStoppedScreen()
+				})
 			} else {
 				// No config - need to configure
-				s.showLoadConfigScreen()
+				fyne.Do(func() {
+					s.showLoadConfigScreen()
+				})
 			}
 		default:
 			// Unknown state
-			s.showLoadConfigScreen()
+			fyne.Do(func() {
+				s.showLoadConfigScreen()
+			})
 		}
 	}()
 }
@@ -131,14 +149,16 @@ func (s *AppState) showDaemonSetupScreen() {
 func (s *AppState) checkServerRequirements(statusLabel, logArea *widget.Label, installBtn *widget.Button) {
 	updateLog := func(msg string) {
 		log.Println(msg)
-		// Widget updates are thread-safe, just need to refresh
-		currentText := logArea.Text
-		if currentText == "" {
-			logArea.SetText(msg)
-		} else {
-			logArea.SetText(currentText + "\n" + msg)
-		}
-		logArea.Refresh()
+		// Widget updates must be done on UI thread
+		fyne.Do(func() {
+			currentText := logArea.Text
+			if currentText == "" {
+				logArea.SetText(msg)
+			} else {
+				logArea.SetText(currentText + "\n" + msg)
+			}
+			logArea.Refresh()
+		})
 	}
 
 	updateLog("🔍 Starting server requirements check...")
@@ -181,7 +201,9 @@ func (s *AppState) checkServerRequirements(statusLabel, logArea *widget.Label, i
 			"go version",
 		})
 
-		statusLabel.SetText("❌ Requirements not met - Go installation required")
+		fyne.Do(func() {
+			statusLabel.SetText("❌ Requirements not met - Go installation required")
+		})
 		return
 	}
 	updateLog(fmt.Sprintf("✅ Go found: %s", strings.TrimSpace(output)))
@@ -223,28 +245,34 @@ func (s *AppState) checkServerRequirements(statusLabel, logArea *widget.Label, i
 	updateLog("")
 	updateLog("Click 'Install Daemon' to proceed...")
 	
-	// Widget updates are thread-safe, just need to refresh
-	statusLabel.SetText("✅ Ready to install")
-	statusLabel.Refresh()
-	installBtn.Enable()
+	// Widget updates must be done on UI thread
+	fyne.Do(func() {
+		statusLabel.SetText("✅ Ready to install")
+		statusLabel.Refresh()
+		installBtn.Enable()
+	})
 }
 
 // installDaemon installs the daemon on the remote server - FULLY AUTOMATED!
 func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
-	// Widget updates are thread-safe, just need to refresh
-	statusLabel.SetText("Installing daemon...")
-	statusLabel.Refresh()
+	// Widget updates must be done on UI thread
+	fyne.Do(func() {
+		statusLabel.SetText("Installing daemon...")
+		statusLabel.Refresh()
+	})
 
 	updateLog := func(msg string) {
 		log.Println(msg)
-		// Widget updates are thread-safe, just need to refresh
-		currentText := logArea.Text
-		if currentText == "" {
-			logArea.SetText(msg)
-		} else {
-			logArea.SetText(currentText + "\n" + msg)
-		}
-		logArea.Refresh()
+		// Widget updates must be done on UI thread
+		fyne.Do(func() {
+			currentText := logArea.Text
+			if currentText == "" {
+				logArea.SetText(msg)
+			} else {
+				logArea.SetText(currentText + "\n" + msg)
+			}
+			logArea.Refresh()
+		})
 	}
 
 	go func() {
@@ -257,8 +285,10 @@ func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
 		_, err := s.sshConn.RunCommand("mkdir -p ~/.apiwatcher/bin ~/.apiwatcher/config ~/.apiwatcher/snapshots ~/.apiwatcher/logs")
 		if err != nil {
 			updateLog(fmt.Sprintf("❌ Failed to create directories: %v", err))
-			statusLabel.SetText("❌ Installation failed")
-			statusLabel.Refresh()
+			fyne.Do(func() {
+				statusLabel.SetText("❌ Installation failed")
+				statusLabel.Refresh()
+			})
 			return
 		}
 		updateLog("✅ Directories created successfully")
@@ -275,8 +305,10 @@ func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
 			updateLog("Please ensure you have Go installed locally and run:")
 			updateLog("  cd /home/andy/Dev/url-checker")
 			updateLog("  GOOS=linux GOARCH=amd64 go build -o apiwatcher-daemon-linux ./cmd/apiwatcher-daemon")
-			statusLabel.SetText("❌ Build failed")
-			statusLabel.Refresh()
+			fyne.Do(func() {
+				statusLabel.SetText("❌ Build failed")
+				statusLabel.Refresh()
+			})
 			return
 		}
 		updateLog("✅ Binary built successfully!")
@@ -289,8 +321,10 @@ func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
 		err = s.uploadDaemonBinary()
 		if err != nil {
 			updateLog(fmt.Sprintf("❌ Upload failed: %v", err))
-			statusLabel.SetText("❌ Upload failed")
-			statusLabel.Refresh()
+			fyne.Do(func() {
+				statusLabel.SetText("❌ Upload failed")
+				statusLabel.Refresh()
+			})
 			return
 		}
 		updateLog("✅ Binary uploaded successfully!")
@@ -301,8 +335,10 @@ func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
 		_, err = s.sshConn.RunCommand("chmod +x ~/.apiwatcher/bin/apiwatcher-daemon")
 		if err != nil {
 			updateLog(fmt.Sprintf("❌ Failed to set permissions: %v", err))
-			statusLabel.SetText("❌ Installation failed")
-			statusLabel.Refresh()
+			fyne.Do(func() {
+				statusLabel.SetText("❌ Installation failed")
+				statusLabel.Refresh()
+			})
 			return
 		}
 		updateLog("✅ Permissions set")
@@ -334,13 +370,17 @@ func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
 		updateLog("   Click 'OK' to connect to the daemon...")
 		updateLog("")
 
-		// Widget updates are thread-safe, just need to refresh
-		statusLabel.SetText("✅ Installation complete!")
-		statusLabel.Refresh()
+		// Widget updates must be done on UI thread
+		fyne.Do(func() {
+			statusLabel.SetText("✅ Installation complete!")
+			statusLabel.Refresh()
+		})
 
 		// Wait a moment, then connect to the daemon
 		time.Sleep(2 * time.Second)
-		s.connectToDaemon()
+		fyne.Do(func() {
+			s.connectToDaemon()
+		})
 	}()
 }
 

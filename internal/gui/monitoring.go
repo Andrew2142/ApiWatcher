@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
 )
 
@@ -26,8 +27,10 @@ func (s *AppState) startMonitoring() {
 		log.Println("Sending configuration to daemon...")
 		err := s.daemonClient.SetConfig(s.cfg.Email, s.cfg.Websites, snapshotIDs)
 		if err != nil {
-			progress.Hide()
-			dialog.ShowError(fmt.Errorf("failed to send configuration: %v", err), s.window)
+			fyne.Do(func() {
+				progress.Hide()
+				dialog.ShowError(fmt.Errorf("failed to send configuration: %v", err), s.window)
+			})
 			return
 		}
 
@@ -35,17 +38,23 @@ func (s *AppState) startMonitoring() {
 		log.Println("Starting monitoring on remote daemon...")
 		err = s.daemonClient.Start()
 		if err != nil {
-			progress.Hide()
-			dialog.ShowError(fmt.Errorf("failed to start monitoring: %v", err), s.window)
+			fyne.Do(func() {
+				progress.Hide()
+				dialog.ShowError(fmt.Errorf("failed to start monitoring: %v", err), s.window)
+			})
 			return
 		}
 
-		progress.Hide()
+		fyne.Do(func() {
+			progress.Hide()
+		})
 
 		log.Printf("✅ Monitoring started on server for %d websites", len(s.cfg.Websites))
 
 		// Show the dashboard (which displays remote monitoring status)
-		s.showDashboardScreen()
+		fyne.Do(func() {
+			s.showDashboardScreen()
+		})
 	}()
 }
 

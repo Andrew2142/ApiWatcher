@@ -179,4 +179,3 @@ func (c *Client) GetLogs(n int) ([]string, error) {
 
 	return logs, nil
 }
-

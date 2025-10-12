@@ -65,7 +65,7 @@ func PromptSnapshotFlow(cfg *config.Config) map[string]*Snapshot {
 					if displayName == "" {
 						displayName = "(unnamed)"
 					}
-					fmt.Printf("%d) %s - Created: %s (ID: %s)\n", 
+					fmt.Printf("%d) %s - Created: %s (ID: %s)\n",
 						i+1, displayName, snap.CreatedAt.Format("2006-01-02 15:04:05"), snap.ID)
 				}
 
@@ -110,10 +110,9 @@ func PromptSnapshotFlow(cfg *config.Config) map[string]*Snapshot {
 				fmt.Println("Discarded snapshot.")
 			}
 		} else {
-		fmt.Printf("Using existing snapshot '%s' for monitoring.\n", selectedSnapshot.Name)
-			snapshotsByURL[url] = selectedSnapshot		
+			fmt.Printf("Using existing snapshot '%s' for monitoring.\n", selectedSnapshot.Name)
+			snapshotsByURL[url] = selectedSnapshot
 		}
 	}
 	return snapshotsByURL
 }
-

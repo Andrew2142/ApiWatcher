@@ -3,10 +3,12 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
 	"url-checker/internal/config"
 	"url-checker/internal/monitor"
 	"url-checker/internal/snapshot"
@@ -194,23 +196,22 @@ func (d *Daemon) GetLogs(n int) []string {
 // runMonitoring is the main monitoring loop
 // runMonitoring is the main monitoring loop
 func (d *Daemon) runMonitoring() {
-	fmt.Println("[Debug] runMonitoring started")
+	fmt.Println("Monitoring started")
 	const numWorkers = 30
 	d.jobQueue = make(chan monitor.Job, 100)
 
 	for i := 1; i <= numWorkers; i++ {
 		go d.worker(i)
-		fmt.Printf("[Debug] Worker %d started\n", i)
 	}
 
 	for d.monitoringActive {
 		jobCount := len(d.config.Websites)
-		fmt.Printf("[Debug] Queueing %d jobs\n", jobCount)
+		d.Logf("Queueing %d jobs\n", jobCount)
 		d.jobWaitGroup.Add(jobCount)
 
 		for _, site := range d.config.Websites {
 			if !d.monitoringActive {
-				fmt.Println("[Debug] Monitoring inactive, skipping job queue")
+				d.Logf("Monitoring inactive, skipping job queue")
 				d.jobWaitGroup.Done()
 				break
 			}
@@ -220,31 +221,31 @@ func (d *Daemon) runMonitoring() {
 				Email:    d.config.Email,
 				Snapshot: d.snapshotsByURL[site],
 			}
-			fmt.Printf("[Debug] Sending job for website: %s\n", site)
+			fmt.Printf("Sending job for website: %s\n", site)
 			d.jobQueue <- job
 		}
 
-		fmt.Println("[Debug] Waiting for jobs to complete...")
+		d.Logf("Waiting for jobs to complete...")
 		d.jobWaitGroup.Wait()
-		fmt.Println("[Debug] All jobs completed for this cycle")
+		d.Logf("All jobs completed for this cycle")
 
 		d.stats.mutex.Lock()
 		d.stats.LastCheckTime = time.Now()
 		d.stats.mutex.Unlock()
-		fmt.Printf("[Debug] LastCheckTime updated: %s\n", d.stats.LastCheckTime.Format(time.RFC3339))
 
 		sleepTime := time.Duration(config.WorkerSleepTime) * time.Minute
-		fmt.Printf("[Debug] Sleeping for %v\n", sleepTime)
+		d.Logf("Sleeping for %v\n", sleepTime)
+
 		select {
 		case <-time.After(sleepTime):
-			fmt.Println("[Debug] Waking up for next cycle")
+			d.Logf("Waking up for next cycle")
 		case <-d.stopChan:
-			fmt.Println("[Debug] Stop signal received, exiting runMonitoring")
+			d.Logf("Stop signal received, exiting runMonitoring")
 			return
 		}
 	}
 
-	fmt.Println("[Debug] Monitoring loop ended")
+	d.Logf("Monitoring loop ended")
 }
 
 func (d *Daemon) worker(id int) {
@@ -325,4 +326,10 @@ func (d *Daemon) loadState() error {
 	}
 
 	return nil
+}
+
+func (d *Daemon) Logf(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	log.Println(msg)
+	d.logBuffer.Add(msg)
 }
