@@ -1,1 +1,1 @@
- go run ./cmd/apiwatcher/main.go 
+ go run ./cmd/apiwatcher-gui/main.go
