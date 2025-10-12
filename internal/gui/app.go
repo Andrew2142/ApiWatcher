@@ -3,7 +3,9 @@ package gui
 import (
 	"log"
 	"url-checker/internal/config"
+	"url-checker/internal/daemon"
 	"url-checker/internal/monitor"
+	"url-checker/internal/remote"
 	"url-checker/internal/snapshot"
 
 	"fyne.io/fyne/v2"
@@ -20,6 +22,9 @@ type AppState struct {
 	monitoringActive bool
 	jobQueue         chan monitor.Job
 	statusLabel      *widget.Label
+	sshConn          *remote.SSHConnection
+	daemonClient     *daemon.Client
+	localTunnelPort  int
 }
 
 func Run() {
@@ -39,8 +44,8 @@ func Run() {
 	}
 
 	log.Println("Showing initial screen...")
-	// Show initial screen
-	state.showLoadConfigScreen()
+	// Show initial screen - SSH connection
+	state.showSSHConnectionScreen()
 
 	log.Println("Starting GUI event loop...")
 	myWindow.ShowAndRun()
