@@ -242,14 +242,18 @@ func (d *Daemon) runMonitoring() {
 		go d.worker(i)
 	}
 
-	d.logBuffer.Add(fmt.Sprintf("[%s] Started %d workers", time.Now().Format("15:04:05"), numWorkers))
+	msg := fmt.Sprintf("[%s] Started %d workers", time.Now().Format("15:04:05"), numWorkers)
+	d.logBuffer.Add(msg)
+	log.Printf(msg)
 
 	for d.monitoringActive {
 		startTime := time.Now()
 		jobCount := len(d.config.Websites)
 		
 		// Queue jobs for all websites
-		d.logBuffer.Add(fmt.Sprintf("[%s] 🚀 Starting check cycle for %d websites", time.Now().Format("15:04:05"), jobCount))
+		msg := fmt.Sprintf("[%s] 🚀 Starting check cycle for %d websites", time.Now().Format("15:04:05"), jobCount)
+		d.logBuffer.Add(msg)
+		log.Printf(msg) // Also log directly to stdout/daemon.log
 		
 		// Add to WaitGroup for each job
 		d.jobWaitGroup.Add(jobCount)
@@ -269,12 +273,16 @@ func (d *Daemon) runMonitoring() {
 		}
 		
 		// WAIT for all workers to finish processing
-		d.logBuffer.Add(fmt.Sprintf("[%s] ⏳ Waiting for workers to complete...", time.Now().Format("15:04:05")))
+		msg = fmt.Sprintf("[%s] ⏳ Waiting for workers to complete...", time.Now().Format("15:04:05"))
+		d.logBuffer.Add(msg)
+		log.Printf(msg)
 		d.jobWaitGroup.Wait()
 		
 		duration := time.Since(startTime)
-		d.logBuffer.Add(fmt.Sprintf("[%s] ✅ All checks completed in %v", 
-			time.Now().Format("15:04:05"), duration))
+		msg = fmt.Sprintf("[%s] ✅ All checks completed in %v", 
+			time.Now().Format("15:04:05"), duration)
+		d.logBuffer.Add(msg)
+		log.Printf(msg)
 
 		// Update last check time
 		d.stats.mutex.Lock()
@@ -283,8 +291,10 @@ func (d *Daemon) runMonitoring() {
 
 		// Wait before next cycle
 		sleepTime := time.Duration(config.WorkerSleepTime) * time.Minute
-		d.logBuffer.Add(fmt.Sprintf("[%s] 💤 Next check cycle in %d minutes", 
-			time.Now().Format("15:04:05"), config.WorkerSleepTime))
+		msg = fmt.Sprintf("[%s] 💤 Next check cycle in %d minutes", 
+			time.Now().Format("15:04:05"), config.WorkerSleepTime)
+		d.logBuffer.Add(msg)
+		log.Printf(msg)
 		
 		select {
 		case <-time.After(sleepTime):
@@ -307,8 +317,10 @@ func (d *Daemon) worker(id int) {
 			return
 		}
 
-		// Log to buffer (visible in GUI)
-		d.logBuffer.Add(fmt.Sprintf("[Worker %d] 🔍 Checking %s", id, job.Website))
+		// Log to buffer (visible in GUI) AND to stdout (visible in daemon.log)
+		msg := fmt.Sprintf("[Worker %d] 🔍 Checking %s", id, job.Website)
+		d.logBuffer.Add(msg)
+		log.Printf(msg)
 
 		// Track the check
 		d.stats.mutex.Lock()
@@ -323,9 +335,13 @@ func (d *Daemon) worker(id int) {
 			d.stats.mutex.Lock()
 			d.stats.FailedChecks++
 			d.stats.mutex.Unlock()
-			d.logBuffer.Add(fmt.Sprintf("[Worker %d] ❌ %s - Failed: %v", id, job.Website, err))
+			msg = fmt.Sprintf("[Worker %d] ❌ %s - Failed: %v", id, job.Website, err)
+			d.logBuffer.Add(msg)
+			log.Printf(msg)
 		} else {
-			d.logBuffer.Add(fmt.Sprintf("[Worker %d] ✅ %s - OK", id, job.Website))
+			msg = fmt.Sprintf("[Worker %d] ✅ %s - OK", id, job.Website)
+			d.logBuffer.Add(msg)
+			log.Printf(msg)
 		}
 		
 		// Signal this job is complete
