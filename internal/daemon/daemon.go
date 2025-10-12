@@ -234,7 +234,7 @@ func (d *Daemon) runMonitoring() {
 	const numWorkers = 30
 
 	// Create job queue
-	d.jobQueue = make(chan monitor.Job, len(d.config.Websites))
+	d.jobQueue = make(chan monitor.Job, 100) // Buffered for better performance
 
 	// Start workers
 	for i := 1; i <= numWorkers; i++ {
@@ -244,7 +244,13 @@ func (d *Daemon) runMonitoring() {
 	d.logBuffer.Add(fmt.Sprintf("[%s] Started %d workers", time.Now().Format("15:04:05"), numWorkers))
 
 	for d.monitoringActive {
+		startTime := time.Now()
+		jobCount := len(d.config.Websites)
+		
 		// Queue jobs for all websites
+		d.logBuffer.Add(fmt.Sprintf("[%s] Starting check cycle for %d websites", time.Now().Format("15:04:05"), jobCount))
+		
+		// Send jobs to workers
 		for _, site := range d.config.Websites {
 			if !d.monitoringActive {
 				break
@@ -256,6 +262,14 @@ func (d *Daemon) runMonitoring() {
 				Snapshot: d.snapshotsByURL[site],
 			}
 		}
+		
+		// Workers process jobs in background
+		// The cycle logs will show when each job completes
+		// We don't block here - workers log their own progress
+		
+		duration := time.Since(startTime)
+		d.logBuffer.Add(fmt.Sprintf("[%s] Jobs queued in %v. Workers processing...", 
+			time.Now().Format("15:04:05"), duration))
 
 		// Update last check time
 		d.stats.mutex.Lock()
@@ -264,9 +278,9 @@ func (d *Daemon) runMonitoring() {
 
 		// Wait before next cycle
 		sleepTime := time.Duration(config.WorkerSleepTime) * time.Minute
-		d.logBuffer.Add(fmt.Sprintf("[%s] Cycle complete. Next check in %d minutes", 
+		d.logBuffer.Add(fmt.Sprintf("[%s] Next check cycle in %d minutes", 
 			time.Now().Format("15:04:05"), config.WorkerSleepTime))
-
+		
 		select {
 		case <-time.After(sleepTime):
 			// Continue to next cycle
@@ -280,19 +294,33 @@ func (d *Daemon) runMonitoring() {
 	d.logBuffer.Add(fmt.Sprintf("[%s] Monitoring loop ended", time.Now().Format("15:04:05")))
 }
 
-// worker processes monitoring jobs
+// worker processes monitoring jobs - uses shared ProcessJob logic
 func (d *Daemon) worker(id int) {
-	for range d.jobQueue {
+	for job := range d.jobQueue {
 		if !d.monitoringActive {
 			return
 		}
 
+		// Log to buffer (visible in GUI)
+		d.logBuffer.Add(fmt.Sprintf("[Worker %d] Checking %s", id, job.Website))
+
+		// Track the check
 		d.stats.mutex.Lock()
 		d.stats.TotalChecks++
 		d.stats.mutex.Unlock()
 
-		// Use existing worker logic
-		monitor.Worker(id, d.jobQueue)
+		// Use the SHARED ProcessJob function from monitor package
+		// This is the SINGLE source of truth for monitoring logic
+		err := monitor.ProcessJob(id, job)
+		
+		if err != nil {
+			d.stats.mutex.Lock()
+			d.stats.FailedChecks++
+			d.stats.mutex.Unlock()
+			d.logBuffer.Add(fmt.Sprintf("[Worker %d] ❌ Failed: %v", id, err))
+		} else {
+			d.logBuffer.Add(fmt.Sprintf("[Worker %d] ✅ Completed", id))
+		}
 	}
 }
 

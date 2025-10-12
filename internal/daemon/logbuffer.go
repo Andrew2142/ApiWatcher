@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -19,7 +20,7 @@ func NewLogBuffer(maxLines int) *LogBuffer {
 	}
 }
 
-// Add adds a log line to the buffer
+// Add adds a log line to the buffer and also prints to stdout
 func (lb *LogBuffer) Add(line string) {
 	lb.mutex.Lock()
 	defer lb.mutex.Unlock()
@@ -30,6 +31,9 @@ func (lb *LogBuffer) Add(line string) {
 	if len(lb.lines) > lb.maxLines {
 		lb.lines = lb.lines[len(lb.lines)-lb.maxLines:]
 	}
+	
+	// Also print to stdout so it gets captured in log files
+	fmt.Println(line)
 }
 
 // GetLast returns the last N log lines

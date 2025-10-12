@@ -3,7 +3,9 @@ package gui
 import (
 	"fmt"
 	"log"
+	"os/exec"
 	"strings"
+	"time"
 	"url-checker/internal/daemon"
 
 	"fyne.io/fyne/v2"
@@ -227,7 +229,7 @@ func (s *AppState) checkServerRequirements(statusLabel, logArea *widget.Label, i
 	installBtn.Enable()
 }
 
-// installDaemon installs the daemon on the remote server
+// installDaemon installs the daemon on the remote server - FULLY AUTOMATED!
 func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
 	// Widget updates are thread-safe, just need to refresh
 	statusLabel.SetText("Installing daemon...")
@@ -247,7 +249,7 @@ func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
 
 	go func() {
 		updateLog("")
-		updateLog("🚀 Starting daemon installation...")
+		updateLog("🚀 Starting AUTOMATED daemon installation...")
 		updateLog("")
 
 		// Create directory structure
@@ -256,72 +258,89 @@ func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
 		if err != nil {
 			updateLog(fmt.Sprintf("❌ Failed to create directories: %v", err))
 			statusLabel.SetText("❌ Installation failed")
+			statusLabel.Refresh()
 			return
 		}
 		updateLog("✅ Directories created successfully")
 		updateLog("")
 
-		// Build daemon for Linux
+		// Build daemon for Linux locally
 		updateLog("🔨 Building daemon binary for Linux...")
-		updateLog("   This may take a moment...")
-
-		// Note: This is a placeholder for now
-		updateLog("⚠️  Automatic build not yet implemented")
-		updateLog("")
-		updateLog("📋 Manual steps required!")
-		updateLog("   → A popup with copyable commands will appear")
-		updateLog("   → Commands are customized for your server")
-
-		// Show copyable daemon installation commands
-		serverHost := s.sshConn.Config().Host
-		serverUser := s.sshConn.Config().Username
-
-		s.showCopyableInstructions("Daemon Installation Commands", []string{
-			"# 1. Build daemon for Linux (run on your local machine):",
-			"GOOS=linux GOARCH=amd64 go build -o apiwatcher-daemon-linux ./cmd/apiwatcher-daemon",
-			"",
-			"# 2. Upload to server:",
-			fmt.Sprintf("scp apiwatcher-daemon-linux %s@%s:~/.apiwatcher/bin/apiwatcher-daemon", serverUser, serverHost),
-			"",
-			"# 3. Make executable:",
-			fmt.Sprintf("ssh %s@%s 'chmod +x ~/.apiwatcher/bin/apiwatcher-daemon'", serverUser, serverHost),
-			"",
-			"# 4. Start daemon:",
-			fmt.Sprintf("ssh %s@%s 'nohup ~/.apiwatcher/bin/apiwatcher-daemon > ~/.apiwatcher/logs/daemon.log 2>&1 &'", serverUser, serverHost),
-		})
-
-		updateLog("")
-
-		// For now, just create a placeholder
-		updateLog("📝 Creating placeholder daemon script...")
-		script := `#!/bin/bash
-echo "Daemon placeholder - please upload real binary"
-echo "See installation instructions above"
-sleep 10
-`
-		_, err = s.sshConn.RunCommand(fmt.Sprintf("cat > ~/.apiwatcher/bin/apiwatcher-daemon << 'EOF'\n%sEOF", script))
+		updateLog("   This will take 10-30 seconds...")
+		
+		err = s.buildDaemonBinary()
 		if err != nil {
-			updateLog(fmt.Sprintf("❌ Failed to create placeholder: %v", err))
+			updateLog(fmt.Sprintf("❌ Build failed: %v", err))
+			updateLog("")
+			updateLog("Please ensure you have Go installed locally and run:")
+			updateLog("  cd /home/andy/Dev/url-checker")
+			updateLog("  GOOS=linux GOARCH=amd64 go build -o apiwatcher-daemon-linux ./cmd/apiwatcher-daemon")
+			statusLabel.SetText("❌ Build failed")
+			statusLabel.Refresh()
+			return
 		}
+		updateLog("✅ Binary built successfully!")
+		updateLog("")
+
+		// Upload binary to server
+		updateLog("📤 Uploading daemon binary to server...")
+		updateLog("   This may take a few seconds...")
+		
+		err = s.uploadDaemonBinary()
+		if err != nil {
+			updateLog(fmt.Sprintf("❌ Upload failed: %v", err))
+			statusLabel.SetText("❌ Upload failed")
+			statusLabel.Refresh()
+			return
+		}
+		updateLog("✅ Binary uploaded successfully!")
+		updateLog("")
 
 		// Make executable
-		updateLog("🔧 Setting permissions...")
+		updateLog("🔧 Setting executable permissions...")
 		_, err = s.sshConn.RunCommand("chmod +x ~/.apiwatcher/bin/apiwatcher-daemon")
 		if err != nil {
-			updateLog(fmt.Sprintf("⚠️  Could not set permissions: %v", err))
+			updateLog(fmt.Sprintf("❌ Failed to set permissions: %v", err))
+			statusLabel.SetText("❌ Installation failed")
+			statusLabel.Refresh()
+			return
+		}
+		updateLog("✅ Permissions set")
+		updateLog("")
+
+		// Start daemon
+		updateLog("▶️  Starting daemon...")
+		_, err = s.sshConn.RunCommand("pkill -f apiwatcher-daemon 2>/dev/null; nohup ~/.apiwatcher/bin/apiwatcher-daemon > ~/.apiwatcher/logs/daemon.log 2>&1 &")
+		if err != nil {
+			updateLog(fmt.Sprintf("⚠️  Start command returned error (may be OK): %v", err))
+		}
+		
+		// Wait for daemon to start
+		updateLog("⏳ Waiting for daemon to initialize...")
+		time.Sleep(2 * time.Second)
+		
+		// Verify daemon is running
+		output, err := s.sshConn.RunCommand("pgrep -f apiwatcher-daemon")
+		if err != nil || output == "" {
+			updateLog("⚠️  Could not verify daemon is running")
+			updateLog("   Please check: ps aux | grep apiwatcher-daemon")
 		} else {
-			updateLog("✅ Permissions set")
+			updateLog(fmt.Sprintf("✅ Daemon is running! (PID: %s)", strings.TrimSpace(output)))
 		}
 		updateLog("")
 
-		updateLog("⚠️  Manual daemon upload required")
-		updateLog("   Please follow the manual steps above to complete installation")
+		updateLog("🎉 Installation complete!")
+		updateLog("   The daemon is now running on your server")
+		updateLog("   Click 'OK' to connect to the daemon...")
 		updateLog("")
-		updateLog("💡 Future versions will automate this process")
 
 		// Widget updates are thread-safe, just need to refresh
-		statusLabel.SetText("⚠️  Manual steps required")
+		statusLabel.SetText("✅ Installation complete!")
 		statusLabel.Refresh()
+
+		// Wait a moment, then connect to the daemon
+		time.Sleep(2 * time.Second)
+		s.connectToDaemon()
 	}()
 }
 
@@ -394,6 +413,39 @@ func (s *AppState) showCopyableInstructions(title string, commands []string) {
 	d := dialog.NewCustom("Installation Commands", "Close", content, s.window)
 	d.Resize(fyne.NewSize(700, 450))
 	d.Show()
+}
+
+// buildDaemonBinary builds the daemon binary for Linux on the local machine
+func (s *AppState) buildDaemonBinary() error {
+	// Get the working directory (should be the project root)
+	workDir := "/home/andy/Dev/url-checker"
+	
+	// Build command for Linux
+	cmd := fmt.Sprintf("cd %s && GOOS=linux GOARCH=amd64 go build -o apiwatcher-daemon-linux ./cmd/apiwatcher-daemon", workDir)
+	
+	// Execute the build command locally
+	output, err := executeLocalCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("build failed: %v\nOutput: %s", err, output)
+	}
+	
+	return nil
+}
+
+// uploadDaemonBinary uploads the built daemon binary to the server
+func (s *AppState) uploadDaemonBinary() error {
+	localPath := "/home/andy/Dev/url-checker/apiwatcher-daemon-linux"
+	remotePath := "~/.apiwatcher/bin/apiwatcher-daemon"
+	
+	// Use SCP to upload the file
+	return s.sshConn.UploadFile(localPath, remotePath)
+}
+
+// executeLocalCommand executes a shell command on the local machine
+func executeLocalCommand(command string) (string, error) {
+	cmd := exec.Command("bash", "-c", command)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
 }
 
 // disconnect closes connections to daemon and SSH

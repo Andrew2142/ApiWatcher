@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -214,7 +215,7 @@ func (c *SSHConnection) CheckDaemonRunning() (bool, error) {
 	return output == "running\n", nil
 }
 
-// UploadFile uploads a file to the remote server using SCP
+// UploadFile uploads a file to the remote server using a simple cat method
 func (c *SSHConnection) UploadFile(localPath, remotePath string) error {
 	// Read local file
 	data, err := os.ReadFile(localPath)
@@ -222,29 +223,22 @@ func (c *SSHConnection) UploadFile(localPath, remotePath string) error {
 		return fmt.Errorf("failed to read local file: %w", err)
 	}
 
-	// Create session for SCP
+	// Encode data as base64 for safe transfer
+	encoded := base64.StdEncoding.EncodeToString(data)
+
+	// Create session
 	session, err := c.client.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 	defer session.Close()
 
-	// Start SCP command
-	writer, err := session.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("failed to get stdin pipe: %w", err)
-	}
-
-	// Run scp command
-	go func() {
-		defer writer.Close()
-		fmt.Fprintf(writer, "C0755 %d %s\n", len(data), remotePath)
-		writer.Write(data)
-		fmt.Fprint(writer, "\x00")
-	}()
-
-	if err := session.Run(fmt.Sprintf("scp -t %s", remotePath)); err != nil {
-		return fmt.Errorf("scp command failed: %w", err)
+	// Upload using base64 encoded data and decode on server
+	// This is more reliable than SCP protocol
+	cmd := fmt.Sprintf("echo '%s' | base64 -d > %s", encoded, remotePath)
+	
+	if err := session.Run(cmd); err != nil {
+		return fmt.Errorf("upload command failed: %w", err)
 	}
 
 	return nil
