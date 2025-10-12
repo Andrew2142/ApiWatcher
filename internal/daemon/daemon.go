@@ -35,6 +35,7 @@ type Daemon struct {
 	stats           *Stats
 	dataDir         string
 	monitoringActive bool
+	jobWaitGroup    sync.WaitGroup  // Track when jobs are actually completed
 }
 
 // Stats holds monitoring statistics
@@ -248,11 +249,15 @@ func (d *Daemon) runMonitoring() {
 		jobCount := len(d.config.Websites)
 		
 		// Queue jobs for all websites
-		d.logBuffer.Add(fmt.Sprintf("[%s] Starting check cycle for %d websites", time.Now().Format("15:04:05"), jobCount))
+		d.logBuffer.Add(fmt.Sprintf("[%s] 🚀 Starting check cycle for %d websites", time.Now().Format("15:04:05"), jobCount))
+		
+		// Add to WaitGroup for each job
+		d.jobWaitGroup.Add(jobCount)
 		
 		// Send jobs to workers
 		for _, site := range d.config.Websites {
 			if !d.monitoringActive {
+				d.jobWaitGroup.Done() // Decrement if we're not sending
 				break
 			}
 
@@ -263,12 +268,12 @@ func (d *Daemon) runMonitoring() {
 			}
 		}
 		
-		// Workers process jobs in background
-		// The cycle logs will show when each job completes
-		// We don't block here - workers log their own progress
+		// WAIT for all workers to finish processing
+		d.logBuffer.Add(fmt.Sprintf("[%s] ⏳ Waiting for workers to complete...", time.Now().Format("15:04:05")))
+		d.jobWaitGroup.Wait()
 		
 		duration := time.Since(startTime)
-		d.logBuffer.Add(fmt.Sprintf("[%s] Jobs queued in %v. Workers processing...", 
+		d.logBuffer.Add(fmt.Sprintf("[%s] ✅ All checks completed in %v", 
 			time.Now().Format("15:04:05"), duration))
 
 		// Update last check time
@@ -278,7 +283,7 @@ func (d *Daemon) runMonitoring() {
 
 		// Wait before next cycle
 		sleepTime := time.Duration(config.WorkerSleepTime) * time.Minute
-		d.logBuffer.Add(fmt.Sprintf("[%s] Next check cycle in %d minutes", 
+		d.logBuffer.Add(fmt.Sprintf("[%s] 💤 Next check cycle in %d minutes", 
 			time.Now().Format("15:04:05"), config.WorkerSleepTime))
 		
 		select {
@@ -298,11 +303,12 @@ func (d *Daemon) runMonitoring() {
 func (d *Daemon) worker(id int) {
 	for job := range d.jobQueue {
 		if !d.monitoringActive {
+			d.jobWaitGroup.Done() // Signal completion even if stopping
 			return
 		}
 
 		// Log to buffer (visible in GUI)
-		d.logBuffer.Add(fmt.Sprintf("[Worker %d] Checking %s", id, job.Website))
+		d.logBuffer.Add(fmt.Sprintf("[Worker %d] 🔍 Checking %s", id, job.Website))
 
 		// Track the check
 		d.stats.mutex.Lock()
@@ -317,10 +323,13 @@ func (d *Daemon) worker(id int) {
 			d.stats.mutex.Lock()
 			d.stats.FailedChecks++
 			d.stats.mutex.Unlock()
-			d.logBuffer.Add(fmt.Sprintf("[Worker %d] ❌ Failed: %v", id, err))
+			d.logBuffer.Add(fmt.Sprintf("[Worker %d] ❌ %s - Failed: %v", id, job.Website, err))
 		} else {
-			d.logBuffer.Add(fmt.Sprintf("[Worker %d] ✅ Completed", id))
+			d.logBuffer.Add(fmt.Sprintf("[Worker %d] ✅ %s - OK", id, job.Website))
 		}
+		
+		// Signal this job is complete
+		d.jobWaitGroup.Done()
 	}
 }
 

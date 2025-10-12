@@ -29,14 +29,19 @@ func Worker(id int, jobs <-chan Job) {
 
 // ProcessJob handles a single monitoring job - SHARED LOGIC for local and daemon
 func ProcessJob(id int, job Job) error {
-	fmt.Printf("[WORKER %d] Checking %s\n", id, job.Website)
+	startTime := time.Now()
+	log.Printf("[WORKER %d] ⏱️  START checking %s", id, job.Website)
 	
 	// Check the website
 	badRequests, err := CheckWebsite(job.Website)
+	checkDuration := time.Since(startTime)
+	
 	if err != nil {
-		log.Println("[ERROR]", err)
+		log.Printf("[WORKER %d] ❌ ERROR after %v: %v", id, checkDuration, err)
 		return err
 	}
+	
+	log.Printf("[WORKER %d] 🔍 Scan completed in %v for %s", id, checkDuration, job.Website)
 
 	// Load alert log
 	alertLog, _ := alert.LoadLog()

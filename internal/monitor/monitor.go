@@ -18,6 +18,9 @@ func CheckWebsite(url string) ([]*models.APIRequest, error) {
 	defer cancel()
 
 	var badRequests []*models.APIRequest
+	requestCount := 0
+	okCount := 0
+	errorCount := 0
 
 	chromedp.ListenTarget(ctx, func(ev interface{}) {
 		if resp, ok := ev.(*network.EventResponseReceived); ok {
@@ -28,26 +31,41 @@ func CheckWebsite(url string) ([]*models.APIRequest, error) {
 				return
 			}
 
-
+			requestCount++
 			status := int(resp.Response.Status)
-			//fmt.Printf("[INFO] %d %s\n", status, apiURL)
+			
+			// Log EVERY non-static HTTP request with timing
+			fmt.Printf("    📡 [%d] %s\n", status, apiURL)
 
 			if status >= 400 {
-				fmt.Printf("[WARN] Bad API status: %d -> %s\n", status, apiURL)
+				errorCount++
+				fmt.Printf("    ⚠️  BAD API: %d -> %s\n", status, apiURL)
 				badRequests = append(badRequests, models.NewAPIRequest(apiURL, "", status, nil, nil, ""))
+			} else {
+				okCount++
 			}
 		}
 	})
 
+	fmt.Printf("    🌐 Navigating to %s...\n", url)
+	scanStart := time.Now()
+	
 	err := chromedp.Run(ctx,
 		network.Enable(),
 		chromedp.Navigate(url),
 		chromedp.Sleep(time.Duration(config.WorkerSleepTime)*time.Second),
 		)
 
+	scanDuration := time.Since(scanStart)
+	
 	if err != nil {
+		fmt.Printf("    ❌ Navigation error after %v: %v\n", scanDuration, err)
 		badRequests = append(badRequests, models.NewAPIRequest(url, "", 0, nil, nil, err.Error()))
 	}
+
+	// Summary log
+	fmt.Printf("    📊 Summary: %d total requests (%d OK, %d errors) in %v\n", 
+		requestCount, okCount, errorCount, scanDuration)
 
 	return badRequests, nil
 }
