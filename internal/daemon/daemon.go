@@ -37,6 +37,7 @@ type Daemon struct {
 	dataDir          string
 	monitoringActive bool
 	jobWaitGroup     sync.WaitGroup
+	monitoringStopped chan bool
 }
 
 // Stats holds monitoring statistics
@@ -212,16 +213,9 @@ func (d *Daemon) Start() error {
 		return fmt.Errorf("no configuration loaded")
 	}
 
-	// Only recreate stopChan if nil or closed
-	if d.stopChan == nil {
-		d.stopChan = make(chan bool)
-	} else {
-		select {
-		case <-d.stopChan:
-			d.stopChan = make(chan bool)
-		default:
-		}
-	}
+	// Create fresh channels for this monitoring session
+	d.stopChan = make(chan bool)
+	d.monitoringStopped = make(chan bool)
 
 	d.state = StateRunning
 	d.monitoringActive = true
@@ -234,25 +228,29 @@ func (d *Daemon) Start() error {
 
 func (d *Daemon) Stop() error {
 	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
+	
 	if d.state != StateRunning && d.state != StatePaused {
+		d.mutex.Unlock()
 		return fmt.Errorf("monitoring is not running")
 	}
 
 	d.state = StateStopped
 	d.monitoringActive = false
 
-	// Safe stopChan close to signal workers and monitoring loop to stop
+	// Close stop channel to signal workers
 	select {
 	case <-d.stopChan:
 	default:
 		close(d.stopChan)
 	}
+	
+	stoppedChan := d.monitoringStopped
+	d.mutex.Unlock()
 
-	// Don't wait for workers - let them exit on their own
-	// This prevents blocking the GUI while workers finish current jobs
-	d.Logf("Stop signal sent - workers will exit shortly")
+	// Wait for monitoring loop to actually exit
+	d.Logf("Stop signal sent - waiting for monitoring to exit")
+	<-stoppedChan
+	d.Logf("Monitoring stopped cleanly")
 	
 	_ = d.saveState()
 	return nil
@@ -300,6 +298,11 @@ func (d *Daemon) Resume() error {
 }
 
 func (d *Daemon) runMonitoring() {
+	defer func() {
+		// Signal that monitoring has stopped
+		close(d.monitoringStopped)
+	}()
+	
 	const numWorkers = 30
 	d.jobQueue = make(chan monitor.Job, 100)
 
