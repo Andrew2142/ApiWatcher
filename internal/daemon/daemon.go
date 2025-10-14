@@ -203,14 +203,32 @@ func (d *Daemon) Logf(format string, args ...interface{}) {
 
 func (d *Daemon) Start() error {
 	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
+	
 	if d.state == StateRunning {
+		d.mutex.Unlock()
 		return fmt.Errorf("monitoring is already running")
 	}
 
 	if d.config == nil || len(d.config.Websites) == 0 {
+		d.mutex.Unlock()
 		return fmt.Errorf("no configuration loaded")
+	}
+
+	// If there's a previous monitoring session still cleaning up, wait for it
+	if d.monitoringStopped != nil {
+		d.Logf("Waiting for previous monitoring session to finish...")
+		stoppedChan := d.monitoringStopped
+		d.mutex.Unlock()
+		
+		// Wait with timeout
+		select {
+		case <-stoppedChan:
+			d.Logf("Previous session finished")
+		case <-time.After(10 * time.Second):
+			d.Logf("Timeout waiting for previous session - proceeding anyway")
+		}
+		
+		d.mutex.Lock()
 	}
 
 	// Create fresh channels for this monitoring session
@@ -221,6 +239,8 @@ func (d *Daemon) Start() error {
 	d.monitoringActive = true
 	d.stats.StartedAt = time.Now()
 
+	d.mutex.Unlock()
+	
 	_ = d.saveState()
 	go d.runMonitoring()
 	return nil
@@ -244,15 +264,14 @@ func (d *Daemon) Stop() error {
 		close(d.stopChan)
 	}
 	
-	stoppedChan := d.monitoringStopped
 	d.mutex.Unlock()
 
-	// Wait for monitoring loop to actually exit
-	d.Logf("Stop signal sent - waiting for monitoring to exit")
-	<-stoppedChan
-	d.Logf("Monitoring stopped cleanly")
+	// Return immediately - let monitoring clean up in background
+	d.Logf("Stop signal sent - monitoring will exit shortly")
 	
-	_ = d.saveState()
+	// Save state asynchronously
+	go d.saveState()
+	
 	return nil
 }
 
