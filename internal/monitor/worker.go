@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"fmt"
 	"time"
 	"url-checker/internal/alert"
@@ -27,17 +28,26 @@ type Job struct {
 // ==========================
 func Worker(id int, jobs <-chan Job, logger Logger) {
 	for job := range jobs {
-		ProcessJob(id, job, logger)
+		ProcessJob(nil, id, job, logger)
 	}
 }
 
-// ProcessJob handles a single monitoring job - SHARED LOGIC for local and daemon
-func ProcessJob(id int, job Job, logger Logger) error {
+// ProcessJob handles a single monitoring job with optional context for cancellation
+func ProcessJob(ctx context.Context, id int, job Job, logger Logger) error {
+	// Check if context is cancelled before starting
+	if ctx != nil {
+		select {
+		case <-ctx.Done():
+			logger.Logf("[WORKER %d] Aborted before starting %s", id, job.Website)
+			return ctx.Err()
+		default:
+		}
+	}
 	startTime := time.Now()
 	logger.Logf("[WORKER %d] ⏱️  START checking %s", id, job.Website)
 
-	// Check the website
-	badRequests, err := CheckWebsite(job.Website)
+	// Check the website with context
+	badRequests, err := CheckWebsite(ctx, job.Website)
 	checkDuration := time.Since(startTime)
 
 	if err != nil {

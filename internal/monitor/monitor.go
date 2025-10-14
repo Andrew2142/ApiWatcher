@@ -15,8 +15,14 @@ import (
 // ==========================
 // Website Monitoring
 // ==========================
-func CheckWebsite(url string) ([]*models.APIRequest, error) {
-	ctx, cancel := chromedp.NewContext(context.Background())
+func CheckWebsite(parentCtx context.Context, url string) ([]*models.APIRequest, error) {
+	// If no context provided, use background
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	
+	// Create chromedp context from parent context so it can be cancelled
+	ctx, cancel := chromedp.NewContext(parentCtx)
 	defer cancel()
 
 	var badRequests []*models.APIRequest

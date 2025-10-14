@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -26,18 +27,19 @@ const (
 
 // Daemon represents the monitoring daemon
 type Daemon struct {
-	state            State
-	config           *config.Config
-	snapshotsByURL   map[string]*snapshot.Snapshot
-	jobQueue         chan monitor.Job
-	stopChan         chan bool
-	mutex            sync.RWMutex
-	logBuffer        *LogBuffer
-	stats            *Stats
-	dataDir          string
-	monitoringActive bool
-	jobWaitGroup     sync.WaitGroup
+	state             State
+	config            *config.Config
+	snapshotsByURL    map[string]*snapshot.Snapshot
+	jobQueue          chan monitor.Job
+	stopChan          chan bool
+	mutex             sync.RWMutex
+	logBuffer         *LogBuffer
+	stats             *Stats
+	dataDir           string
+	monitoringActive  bool
+	jobWaitGroup      sync.WaitGroup
 	monitoringStopped chan bool
+	cancelCtx         context.CancelFunc
 }
 
 // Stats holds monitoring statistics
@@ -231,9 +233,13 @@ func (d *Daemon) Start() error {
 		d.mutex.Lock()
 	}
 
-	// Create fresh channels for this monitoring session
+	// Create fresh channels and context for this monitoring session
 	d.stopChan = make(chan bool)
 	d.monitoringStopped = make(chan bool)
+	
+	// Create cancellable context for instant worker abort
+	ctx, cancel := context.WithCancel(context.Background())
+	d.cancelCtx = cancel
 
 	d.state = StateRunning
 	d.monitoringActive = true
@@ -242,7 +248,7 @@ func (d *Daemon) Start() error {
 	d.mutex.Unlock()
 	
 	_ = d.saveState()
-	go d.runMonitoring()
+	go d.runMonitoring(ctx)
 	return nil
 }
 
@@ -257,7 +263,12 @@ func (d *Daemon) Stop() error {
 	d.state = StateStopped
 	d.monitoringActive = false
 
-	// Close stop channel to signal workers
+	// Cancel context to abort all workers instantly
+	if d.cancelCtx != nil {
+		d.cancelCtx()
+	}
+
+	// Close stop channel to signal monitoring loop
 	select {
 	case <-d.stopChan:
 	default:
@@ -267,7 +278,7 @@ func (d *Daemon) Stop() error {
 	d.mutex.Unlock()
 
 	// Return immediately - let monitoring clean up in background
-	d.Logf("Stop signal sent - monitoring will exit shortly")
+	d.Logf("Stop signal sent - workers aborting instantly")
 	
 	// Save state asynchronously
 	go d.saveState()
@@ -298,36 +309,35 @@ func (d *Daemon) Resume() error {
 	}
 
 	d.state = StateRunning
-
-	// Only recreate stopChan if nil or closed
-	if d.stopChan == nil {
-		d.stopChan = make(chan bool)
-	} else {
-		select {
-		case <-d.stopChan:
-			d.stopChan = make(chan bool)
-		default:
-		}
-	}
+	d.monitoringActive = true
+	
+	// Create context for this session
+	ctx, cancel := context.WithCancel(context.Background())
+	d.cancelCtx = cancel
+	d.stopChan = make(chan bool)
 
 	_ = d.saveState()
-	go d.runMonitoring()
-	d.monitoringActive = true
+	go d.runMonitoring(ctx)
 	return nil
 }
 
-func (d *Daemon) runMonitoring() {
+func (d *Daemon) runMonitoring(ctx context.Context) {
 	defer func() {
-		// Signal that monitoring has stopped
-		close(d.monitoringStopped)
+		// Safely signal that monitoring has stopped
+		d.mutex.Lock()
+		if d.monitoringStopped != nil {
+			close(d.monitoringStopped)
+			d.monitoringStopped = nil
+		}
+		d.mutex.Unlock()
 	}()
 	
 	const numWorkers = 30
 	d.jobQueue = make(chan monitor.Job, 100)
 
-	// Start workers
+	// Start workers with context
 	for i := 1; i <= numWorkers; i++ {
-		go d.worker(i)
+		go d.worker(ctx, i)
 	}
 
 	for {
@@ -335,7 +345,11 @@ func (d *Daemon) runMonitoring() {
 		case <-d.stopChan:
 			d.Logf("Stop signal received, shutting down monitoring loop")
 			close(d.jobQueue)
-			d.jobWaitGroup.Wait()
+			// Don't wait for workers - context cancellation aborts them instantly
+			return
+		case <-ctx.Done():
+			d.Logf("Context cancelled, shutting down monitoring loop")
+			close(d.jobQueue)
 			return
 		default:
 		}
@@ -373,24 +387,37 @@ func (d *Daemon) runMonitoring() {
 		case <-d.stopChan:
 			d.Logf("Stop signal received, shutting down monitoring loop")
 			close(d.jobQueue)
-			d.jobWaitGroup.Wait()
+			// Don't wait for workers - context cancellation aborts them instantly
+			return
+		case <-ctx.Done():
+			d.Logf("Context cancelled, shutting down monitoring loop")
+			close(d.jobQueue)
 			return
 		}
 	}
 }
 
-func (d *Daemon) worker(id int) {
+func (d *Daemon) worker(ctx context.Context, id int) {
 	for job := range d.jobQueue {
-		// Check if we should stop before processing this job
+		// Check if context is cancelled (instant abort)
 		select {
-		case <-d.stopChan:
-			d.Logf("[Worker %d] Stop signal received, exiting", id)
-			d.jobWaitGroup.Done() // Must call Done() since job was pulled from queue
+		case <-ctx.Done():
+			d.Logf("[Worker %d] Context cancelled, aborting", id)
+			d.jobWaitGroup.Done()
 			return
 		default:
 		}
 
-		// Also check monitoringActive flag
+		// Also check stop signal
+		select {
+		case <-d.stopChan:
+			d.Logf("[Worker %d] Stop signal received, exiting", id)
+			d.jobWaitGroup.Done()
+			return
+		default:
+		}
+
+		// Check monitoringActive flag
 		if !d.monitoringActive {
 			d.Logf("[Worker %d] Monitoring inactive, skipping job", id)
 			d.jobWaitGroup.Done()
@@ -401,7 +428,8 @@ func (d *Daemon) worker(id int) {
 		d.stats.TotalChecks++
 		d.stats.mutex.Unlock()
 
-		if err := monitor.ProcessJob(id, job, d); err != nil {
+		// Pass context to ProcessJob so it can abort mid-operation
+		if err := monitor.ProcessJob(ctx, id, job, d); err != nil {
 			d.stats.mutex.Lock()
 			d.stats.FailedChecks++
 			d.stats.mutex.Unlock()
