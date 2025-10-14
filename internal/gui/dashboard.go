@@ -58,6 +58,15 @@ func (s *AppState) showDashboardScreen() {
 		s.showDaemonStoppedScreen()
 	})
 
+	clearLogsBtn := widget.NewButton("Clear Buffer Log", func() {
+		if err := s.daemonClient.ClearLogs(); err != nil {
+			dialog.ShowError(fmt.Errorf("failed to clear logs: %v", err), s.window)
+			return
+		}
+		// Immediately refresh the log area to show it's cleared
+		logArea.SetText("")
+	})
+
 	disconnectBtn := widget.NewButton("Disconnect", func() {
 		s.disconnect()
 		s.showSSHConnectionScreen()
@@ -69,6 +78,7 @@ func (s *AppState) showDashboardScreen() {
 	// Layout
 	controlButtons := container.NewHBox(
 		stopBtn,
+		clearLogsBtn,
 	)
 
 	content := container.NewVBox(

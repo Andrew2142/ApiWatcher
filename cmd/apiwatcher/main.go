@@ -12,6 +12,8 @@ import (
 	"os"
 )
 
+ 
+
 func main() {
 	var cfg *config.Config
 	var snapshotsByURL map[string]*snapshot.Snapshot
@@ -79,9 +81,10 @@ func main() {
 	// Start workers
 	const numWorkers = 30
 	jobQueue := make(chan monitor.Job, len(cfg.Websites))
+	logger := &SimpleLogger{}
 
 	for i := 1; i <= numWorkers; i++ {
-		go monitor.Worker(i, jobQueue)
+		go monitor.Worker(i, jobQueue, logger)
 	}
 
 	fmt.Printf("[START] Monitoring %d websites every %d minutes. Alerts to %s\n", 

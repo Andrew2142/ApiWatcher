@@ -22,17 +22,18 @@ type Response struct {
 
 // Command types
 const (
-	CmdStatus      = "STATUS"
-	CmdStart       = "START"
-	CmdStop        = "STOP"
-	CmdPause       = "PAUSE"
-	CmdResume      = "RESUME"
-	CmdSetConfig   = "SET_CONFIG"
-	CmdGetConfig   = "GET_CONFIG"
-	CmdGetLogs     = "GET_LOGS"
-	CmdGetStats    = "GET_STATS"
-	CmdPing        = "PING"
-	CmdShutdown    = "SHUTDOWN"
+	CmdStatus    = "STATUS"
+	CmdStart     = "START"
+	CmdStop      = "STOP"
+	CmdPause     = "PAUSE"
+	CmdResume    = "RESUME"
+	CmdSetConfig = "SET_CONFIG"
+	CmdGetConfig = "GET_CONFIG"
+	CmdGetLogs   = "GET_LOGS"
+	CmdClearLogs = "CLEAR_LOGS"
+	CmdGetStats  = "GET_STATS"
+	CmdPing      = "PING"
+	CmdShutdown  = "SHUTDOWN"
 )
 
 // SetConfigPayload is the payload for SET_CONFIG command
@@ -49,11 +50,11 @@ type GetLogsPayload struct {
 
 // StatusData is the response data for STATUS command
 type StatusData struct {
-	State          State  `json:"state"`
-	WebsiteCount   int    `json:"website_count"`
-	Email          string `json:"email"`
-	HasConfig      bool   `json:"has_config"`
-	Stats          Stats  `json:"stats"`
+	State        State     `json:"state"`
+	WebsiteCount int       `json:"website_count"`
+	Email        string    `json:"email"`
+	HasConfig    bool      `json:"has_config"`
+	Stats        StatsData `json:"stats"`
 }
 
 // HandleCommand processes a command and returns a response
@@ -86,6 +87,9 @@ func (d *Daemon) HandleCommand(cmd Command) Response {
 	case CmdGetLogs:
 		return d.handleGetLogs(cmd.Payload)
 
+	case CmdClearLogs:
+		return d.handleClearLogs()
+
 	case CmdGetStats:
 		return d.handleGetStats()
 
@@ -99,12 +103,12 @@ func (d *Daemon) HandleCommand(cmd Command) Response {
 
 func (d *Daemon) handleStatus() Response {
 	cfg := d.GetConfig()
-	stats := d.GetStats()
+	stats := d.GetStatsData()
 
 	data := StatusData{
-		State:        d.GetState(),
-		HasConfig:    cfg != nil,
-		Stats:        stats,
+		State:     d.GetState(),
+		HasConfig: cfg != nil,
+		Stats:     stats,
 	}
 
 	if cfg != nil {
@@ -192,8 +196,12 @@ func (d *Daemon) handleGetLogs(payload json.RawMessage) Response {
 	return Response{Success: true, Data: logs}
 }
 
-func (d *Daemon) handleGetStats() Response {
-	stats := d.GetStats()
-	return Response{Success: true, Data: stats}
+func (d *Daemon) handleClearLogs() Response {
+	d.ClearLogs()
+	return Response{Success: true, Message: "logs cleared"}
 }
 
+func (d *Daemon) handleGetStats() Response {
+	stats := d.GetStatsData()
+	return Response{Success: true, Data: stats}
+}

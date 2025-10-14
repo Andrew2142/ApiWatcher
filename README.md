@@ -124,9 +124,7 @@ MIT License © Legend
 
 
 INSTALL DAEMON ON SERVER
-
-cd ~/dev/ApiWatcher && go build -o apiwatcher-daemon ./cmd/apiwatcher-daemon && mkdir -p ~/.apiwatcher/bin && mv apiwatcher-daemon ~/.apiwatcher/bin/ && pkill -f apiwatcher-daemon; chmod +x ~/.apiwatcher/bin/apiwatcher-daemon && nohup ~/.apiwatcher/bin/apiwatcher-daemon > ~/.apiwatcher/logs/daemon.log 2>&1 & tail -f ~/.apiwatcher/logs/daemon.log
-
+ 
 # 1. Navigate to your project (you're probably close)
 cd ~/dev/ApiWatcher
 

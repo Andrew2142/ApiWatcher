@@ -179,3 +179,15 @@ func (c *Client) GetLogs(n int) ([]string, error) {
 
 	return logs, nil
 }
+
+// ClearLogs clears the daemon's log buffer
+func (c *Client) ClearLogs() error {
+	resp, err := c.SendCommand(Command{Type: CmdClearLogs})
+	if err != nil {
+		return err
+	}
+	if !resp.Success {
+		return fmt.Errorf("failed to clear logs: %s", resp.Message)
+	}
+	return nil
+}

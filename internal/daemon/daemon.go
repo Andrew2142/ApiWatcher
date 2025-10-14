@@ -49,6 +49,15 @@ type Stats struct {
 	mutex         sync.RWMutex
 }
 
+// Public stats for reading outside
+type StatsData struct {
+	StartedAt     time.Time
+	TotalChecks   int
+	FailedChecks  int
+	AlertsSent    int
+	LastCheckTime time.Time
+}
+
 // DaemonState represents the persisted state
 type DaemonState struct {
 	State       State             `json:"state"`
@@ -90,11 +99,11 @@ func (d *Daemon) GetConfig() *config.Config {
 	return d.config
 }
 
-func (d *Daemon) GetStats() Stats {
+func (d *Daemon) GetStatsData() StatsData {
 	d.stats.mutex.RLock()
 	defer d.stats.mutex.RUnlock()
 
-	return Stats{
+	return StatsData{
 		StartedAt:     d.stats.StartedAt,
 		TotalChecks:   d.stats.TotalChecks,
 		FailedChecks:  d.stats.FailedChecks,
@@ -193,6 +202,10 @@ func (d *Daemon) GetLogs(n int) []string {
 	return d.logBuffer.GetLast(n)
 }
 
+func (d *Daemon) ClearLogs() {
+	d.logBuffer.Clear()
+}
+
 // runMonitoring is the main monitoring loop
 // runMonitoring is the main monitoring loop
 func (d *Daemon) runMonitoring() {
@@ -259,7 +272,7 @@ func (d *Daemon) worker(id int) {
 		d.stats.TotalChecks++
 		d.stats.mutex.Unlock()
 
-		if err := monitor.ProcessJob(id, job); err != nil {
+		if err := monitor.ProcessJob(id, job, d); err != nil {
 			d.stats.mutex.Lock()
 			d.stats.FailedChecks++
 			d.stats.mutex.Unlock()

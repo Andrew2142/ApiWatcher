@@ -2,12 +2,16 @@ package monitor
 
 import (
 	"fmt"
-	"log"
 	"time"
 	"url-checker/internal/alert"
 	"url-checker/internal/email"
 	"url-checker/internal/snapshot"
 )
+
+// Logger interface for dependency injection
+type Logger interface {
+	Logf(format string, args ...interface{})
+}
 
 // ==========================
 // Job Structure
@@ -21,27 +25,27 @@ type Job struct {
 // ==========================
 // Worker & Job Processing
 // ==========================
-func Worker(id int, jobs <-chan Job) {
+func Worker(id int, jobs <-chan Job, logger Logger) {
 	for job := range jobs {
-		ProcessJob(id, job)
+		ProcessJob(id, job, logger)
 	}
 }
 
 // ProcessJob handles a single monitoring job - SHARED LOGIC for local and daemon
-func ProcessJob(id int, job Job) error {
+func ProcessJob(id int, job Job, logger Logger) error {
 	startTime := time.Now()
-	log.Printf("[WORKER %d] ⏱️  START checking %s", id, job.Website)
+	logger.Logf("[WORKER %d] ⏱️  START checking %s", id, job.Website)
 
 	// Check the website
 	badRequests, err := CheckWebsite(job.Website)
 	checkDuration := time.Since(startTime)
 
 	if err != nil {
-		log.Printf("[WORKER %d] ❌ ERROR after %v: %v", id, checkDuration, err)
+		logger.Logf("[WORKER %d] ❌ ERROR after %v: %v", id, checkDuration, err)
 		return err
 	}
 
-	log.Printf("[WORKER %d] 🔍 Scan completed in %v for %s", id, checkDuration, job.Website)
+	logger.Logf("[WORKER %d] 🔍 Scan completed in %v for %s", id, checkDuration, job.Website)
 
 	// Load alert log
 	alertLog, _ := alert.LoadLog()
@@ -58,29 +62,29 @@ func ProcessJob(id int, job Job) error {
 		}
 
 		if exists && now-lastAlert < fiveHours {
-			log.Printf("[INFO] Skipping email for %s (sent recently)\n", job.Website)
+			logger.Logf("[INFO] Skipping email for %s (sent recently)", job.Website)
 		} else {
 			if sendErr := email.Send(job.Email, "⚠️ API Errors Detected", body); sendErr != nil {
-				log.Println("[ERROR] Failed to send email:", sendErr)
+				logger.Logf("[ERROR] Failed to send email: %v", sendErr)
 			} else {
-				log.Println("[ALERT] Email sent successfully")
+				logger.Logf("[ALERT] Email sent successfully")
 				alertLog[job.Website] = now
 				if err := alert.SaveLog(alertLog); err != nil {
-					log.Println("[ERROR] Failed to save alert log:", err)
+					logger.Logf("[ERROR] Failed to save alert log: %v", err)
 				}
 			}
 		}
 	} else {
-		log.Println("[OK] No API errors detected for", job.Website)
+		logger.Logf("[OK] No API errors detected for %s", job.Website)
 	}
 
 	// Run snapshot if configured
 	if job.Snapshot != nil {
-		log.Printf("[WORKER %d] Running snapshot for %s\n", id, job.Website)
+		logger.Logf("[WORKER %d] Running snapshot for %s", id, job.Website)
 		if err := snapshot.Replay(job.Snapshot); err != nil {
-			log.Printf("[WORKER %d] Snapshot replay error for %s (%s): %v\n", id, job.Website, job.Snapshot.ID, err)
+			logger.Logf("[WORKER %d] Snapshot replay error for %s (%s): %v", id, job.Website, job.Snapshot.ID, err)
 		} else {
-			log.Printf("[WORKER %d] Snapshot replay finished for %s (%s)\n", id, job.Website, job.Snapshot.ID)
+			logger.Logf("[WORKER %d] Snapshot replay finished for %s (%s)", id, job.Website, job.Snapshot.ID)
 		}
 	}
 
