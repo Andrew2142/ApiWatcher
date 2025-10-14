@@ -44,7 +44,7 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 
-	log.Printf("Daemon is running. Press Ctrl+C to stop.")
+	log.Printf("Daemon is running")
 
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
@@ -75,4 +75,3 @@ func getDefaultDataDir() string {
 	}
 	return filepath.Join(home, ".apiwatcher")
 }
-

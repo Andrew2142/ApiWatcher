@@ -112,77 +112,6 @@ func (d *Daemon) GetStatsData() StatsData {
 	}
 }
 
-func (d *Daemon) Start() error {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
-	if d.state == StateRunning {
-		return fmt.Errorf("monitoring is already running")
-	}
-
-	if d.config == nil || len(d.config.Websites) == 0 {
-		return fmt.Errorf("no configuration loaded")
-	}
-
-	d.state = StateRunning
-	d.monitoringActive = true
-	d.stats.StartedAt = time.Now()
-
-	_ = d.saveState()
-	go d.runMonitoring()
-	return nil
-}
-
-func (d *Daemon) Stop() error {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
-	if d.state != StateRunning && d.state != StatePaused {
-		return fmt.Errorf("monitoring is not running")
-	}
-
-	d.state = StateStopped
-	d.monitoringActive = false
-
-	select {
-	case d.stopChan <- true:
-	default:
-	}
-
-	_ = d.saveState()
-	return nil
-}
-
-func (d *Daemon) Pause() error {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
-	if d.state != StateRunning {
-		return fmt.Errorf("monitoring is not running")
-	}
-
-	d.state = StatePaused
-	d.monitoringActive = false
-	_ = d.saveState()
-	return nil
-}
-
-func (d *Daemon) Resume() error {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
-	if d.state != StatePaused {
-		return fmt.Errorf("monitoring is not paused")
-	}
-
-	d.state = StateRunning
-	d.monitoringActive = true
-	_ = d.saveState()
-
-	go d.runMonitoring()
-	return nil
-}
-
 func (d *Daemon) SetConfig(cfg *config.Config, snapshots map[string]*snapshot.Snapshot) error {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
@@ -204,82 +133,6 @@ func (d *Daemon) GetLogs(n int) []string {
 
 func (d *Daemon) ClearLogs() {
 	d.logBuffer.Clear()
-}
-
-// runMonitoring is the main monitoring loop
-// runMonitoring is the main monitoring loop
-func (d *Daemon) runMonitoring() {
-	fmt.Println("Monitoring started")
-	const numWorkers = 30
-	d.jobQueue = make(chan monitor.Job, 100)
-
-	for i := 1; i <= numWorkers; i++ {
-		go d.worker(i)
-	}
-
-	for d.monitoringActive {
-		jobCount := len(d.config.Websites)
-		d.Logf("Queueing %d jobs\n", jobCount)
-		d.jobWaitGroup.Add(jobCount)
-
-		for _, site := range d.config.Websites {
-			if !d.monitoringActive {
-				d.Logf("Monitoring inactive, skipping job queue")
-				d.jobWaitGroup.Done()
-				break
-			}
-
-			job := monitor.Job{
-				Website:  site,
-				Email:    d.config.Email,
-				Snapshot: d.snapshotsByURL[site],
-			}
-			fmt.Printf("Sending job for website: %s\n", site)
-			d.jobQueue <- job
-		}
-
-		d.Logf("Waiting for jobs to complete...")
-		d.jobWaitGroup.Wait()
-		d.Logf("All jobs completed for this cycle")
-
-		d.stats.mutex.Lock()
-		d.stats.LastCheckTime = time.Now()
-		d.stats.mutex.Unlock()
-
-		sleepTime := time.Duration(config.WorkerSleepTime) * time.Minute
-		d.Logf("Sleeping for %v\n", sleepTime)
-
-		select {
-		case <-time.After(sleepTime):
-			d.Logf("Waking up for next cycle")
-		case <-d.stopChan:
-			d.Logf("Stop signal received, exiting runMonitoring")
-			return
-		}
-	}
-
-	d.Logf("Monitoring loop ended")
-}
-
-func (d *Daemon) worker(id int) {
-	for job := range d.jobQueue {
-		if !d.monitoringActive {
-			d.jobWaitGroup.Done()
-			return
-		}
-
-		d.stats.mutex.Lock()
-		d.stats.TotalChecks++
-		d.stats.mutex.Unlock()
-
-		if err := monitor.ProcessJob(id, job, d); err != nil {
-			d.stats.mutex.Lock()
-			d.stats.FailedChecks++
-			d.stats.mutex.Unlock()
-		}
-
-		d.jobWaitGroup.Done()
-	}
 }
 
 func (d *Daemon) saveState() error {
@@ -345,4 +198,186 @@ func (d *Daemon) Logf(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	log.Println(msg)
 	d.logBuffer.Add(msg)
+}
+
+func (d *Daemon) Start() error {
+	d.monitoringActive = true
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	if d.state == StateRunning {
+		return fmt.Errorf("monitoring is already running")
+	}
+
+	if d.config == nil || len(d.config.Websites) == 0 {
+		return fmt.Errorf("no configuration loaded")
+	}
+
+	// Only recreate stopChan if nil or closed
+	if d.stopChan == nil {
+		d.stopChan = make(chan bool)
+	} else {
+		select {
+		case <-d.stopChan:
+			d.stopChan = make(chan bool)
+		default:
+		}
+	}
+
+	d.state = StateRunning
+	d.stats.StartedAt = time.Now()
+
+	_ = d.saveState()
+	go d.runMonitoring()
+	return nil
+}
+
+func (d *Daemon) Stop() error {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	if d.state != StateRunning && d.state != StatePaused {
+		return fmt.Errorf("monitoring is not running")
+	}
+
+	d.state = StateStopped
+
+	// Safe stopChan close
+	select {
+	case <-d.stopChan:
+	default:
+		close(d.stopChan)
+	}
+
+	// Wait for all jobs and workers to finish
+	d.jobWaitGroup.Wait()
+
+	_ = d.saveState()
+	d.Logf("Monitoring stopped cleanly")
+	d.monitoringActive = false
+	return nil
+}
+
+func (d *Daemon) Pause() error {
+	d.monitoringActive = false
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	if d.state != StateRunning {
+		return fmt.Errorf("monitoring is not running")
+	}
+
+	d.state = StatePaused
+	_ = d.saveState()
+	return nil
+}
+
+func (d *Daemon) Resume() error {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	if d.state != StatePaused {
+		return fmt.Errorf("monitoring is not paused")
+	}
+
+	d.state = StateRunning
+
+	// Only recreate stopChan if nil or closed
+	if d.stopChan == nil {
+		d.stopChan = make(chan bool)
+	} else {
+		select {
+		case <-d.stopChan:
+			d.stopChan = make(chan bool)
+		default:
+		}
+	}
+
+	_ = d.saveState()
+	go d.runMonitoring()
+	d.monitoringActive = true
+	return nil
+}
+
+func (d *Daemon) runMonitoring() {
+	const numWorkers = 30
+	d.jobQueue = make(chan monitor.Job, 100)
+
+	// Start workers
+	for i := 1; i <= numWorkers; i++ {
+		go d.worker(i)
+	}
+
+	for {
+		select {
+		case <-d.stopChan:
+			d.Logf("Stop signal received, shutting down monitoring loop")
+			close(d.jobQueue)
+			d.jobWaitGroup.Wait()
+			return
+		default:
+		}
+
+		jobCount := len(d.config.Websites)
+		d.Logf("Queueing %d jobs", jobCount)
+		d.jobWaitGroup.Add(jobCount)
+
+		for _, site := range d.config.Websites {
+			job := monitor.Job{
+				Website:  site,
+				Email:    d.config.Email,
+				Snapshot: d.snapshotsByURL[site],
+			}
+
+			select {
+			case d.jobQueue <- job:
+			case <-d.stopChan:
+				d.jobWaitGroup.Done()
+				break
+			}
+		}
+
+		d.jobWaitGroup.Wait()
+
+		d.stats.mutex.Lock()
+		d.stats.LastCheckTime = time.Now()
+		d.stats.mutex.Unlock()
+
+		sleepTime := time.Duration(config.WorkerSleepTime) * time.Minute
+		d.Logf("Sleeping for %v", sleepTime)
+
+		select {
+		case <-time.After(sleepTime):
+		case <-d.stopChan:
+			d.Logf("Stop signal received, shutting down monitoring loop")
+			close(d.jobQueue)
+			d.jobWaitGroup.Wait()
+			return
+		}
+	}
+}
+
+func (d *Daemon) worker(id int) {
+	for job := range d.jobQueue {
+		select {
+		case <-d.stopChan:
+			d.Logf("[Worker %d] Stop signal received, exiting", id)
+			return
+		default:
+		}
+
+		d.stats.mutex.Lock()
+		d.stats.TotalChecks++
+		d.stats.mutex.Unlock()
+
+		if err := monitor.ProcessJob(id, job, d); err != nil {
+			d.stats.mutex.Lock()
+			d.stats.FailedChecks++
+			d.stats.mutex.Unlock()
+		}
+
+		d.jobWaitGroup.Done()
+	}
+
+	d.Logf("[Worker %d] Job queue closed, exiting", id)
 }
