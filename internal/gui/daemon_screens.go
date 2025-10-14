@@ -344,12 +344,12 @@ func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
 		updateLog("✅ Permissions set")
 		updateLog("")
 
-		// Start daemon
-		updateLog("▶️  Starting daemon...")
-		_, err = s.sshConn.RunCommand("pkill -f apiwatcher-daemon 2>/dev/null; nohup ~/.apiwatcher/bin/apiwatcher-daemon > ~/.apiwatcher/logs/daemon.log 2>&1 &")
-		if err != nil {
-			updateLog(fmt.Sprintf("⚠️  Start command returned error (may be OK): %v", err))
-		}
+	// Start daemon
+	updateLog("▶️  Starting daemon...")
+	_, err = s.sshConn.RunCommand("pkill -f apiwatcher-daemon 2>/dev/null; setsid nohup ~/.apiwatcher/bin/apiwatcher-daemon > ~/.apiwatcher/logs/daemon.log 2>&1 < /dev/null &")
+	if err != nil {
+		updateLog(fmt.Sprintf("⚠️  Start command returned error (may be OK): %v", err))
+	}
 		
 		// Wait for daemon to start
 		updateLog("⏳ Waiting for daemon to initialize...")
@@ -389,9 +389,14 @@ func (s *AppState) showDaemonStoppedScreen() {
 	title := widget.NewLabel("Daemon Stopped")
 	title.TextStyle.Bold = true
 
-	status, _ := s.daemonClient.GetStatus()
-	infoText := fmt.Sprintf("The daemon is installed but monitoring is not running.\n\nLast known configuration:\n- Websites: %d\n- Email: %s",
-		status.WebsiteCount, status.Email)
+	status, err := s.daemonClient.GetStatus()
+	var infoText string
+	if err != nil || status == nil {
+		infoText = "The daemon is installed but monitoring is not running."
+	} else {
+		infoText = fmt.Sprintf("The daemon is installed but monitoring is not running.\n\nLast known configuration:\n- Websites: %d\n- Email: %s",
+			status.WebsiteCount, status.Email)
+	}
 
 	startBtn := widget.NewButton("Start Monitoring", func() {
 		if err := s.daemonClient.Start(); err != nil {

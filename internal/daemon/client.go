@@ -12,6 +12,7 @@ import (
 type Client struct {
 	address string
 	conn    net.Conn
+	reader  *bufio.Reader
 }
 
 // NewClient creates a new daemon client
@@ -28,6 +29,7 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
 	c.conn = conn
+	c.reader = bufio.NewReader(conn)
 	return nil
 }
 
@@ -51,8 +53,8 @@ func (c *Client) SendCommand(cmd Command) (*Response, error) {
 		return nil, fmt.Errorf("failed to send command: %w", err)
 	}
 
-	// Read response
-	decoder := json.NewDecoder(bufio.NewReader(c.conn))
+	// Read response using the persistent reader
+	decoder := json.NewDecoder(c.reader)
 	var response Response
 	if err := decoder.Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)

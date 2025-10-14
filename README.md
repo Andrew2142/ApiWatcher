@@ -138,7 +138,7 @@ mv apiwatcher-daemon ~/.apiwatcher/bin/
 # 4. Restart daemon
 pkill -f apiwatcher-daemon
 chmod +x ~/.apiwatcher/bin/apiwatcher-daemon
-nohup ~/.apiwatcher/bin/apiwatcher-daemon > ~/.apiwatcher/logs/daemon.log 2>&1 &
+setsid nohup ~/.apiwatcher/bin/apiwatcher-daemon > ~/.apiwatcher/logs/daemon.log 2>&1 < /dev/null &
 
 # 5. Watch logs
 tail -f ~/.apiwatcher/logs/daemon.log

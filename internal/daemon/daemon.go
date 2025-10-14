@@ -201,7 +201,6 @@ func (d *Daemon) Logf(format string, args ...interface{}) {
 }
 
 func (d *Daemon) Start() error {
-	d.monitoringActive = true
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -225,6 +224,7 @@ func (d *Daemon) Start() error {
 	}
 
 	d.state = StateRunning
+	d.monitoringActive = true
 	d.stats.StartedAt = time.Now()
 
 	_ = d.saveState()
@@ -241,20 +241,20 @@ func (d *Daemon) Stop() error {
 	}
 
 	d.state = StateStopped
+	d.monitoringActive = false
 
-	// Safe stopChan close
+	// Safe stopChan close to signal workers and monitoring loop to stop
 	select {
 	case <-d.stopChan:
 	default:
 		close(d.stopChan)
 	}
 
-	// Wait for all jobs and workers to finish
-	d.jobWaitGroup.Wait()
-
+	// Don't wait for workers - let them exit on their own
+	// This prevents blocking the GUI while workers finish current jobs
+	d.Logf("Stop signal sent - workers will exit shortly")
+	
 	_ = d.saveState()
-	d.Logf("Monitoring stopped cleanly")
-	d.monitoringActive = false
 	return nil
 }
 
@@ -359,11 +359,20 @@ func (d *Daemon) runMonitoring() {
 
 func (d *Daemon) worker(id int) {
 	for job := range d.jobQueue {
+		// Check if we should stop before processing this job
 		select {
 		case <-d.stopChan:
 			d.Logf("[Worker %d] Stop signal received, exiting", id)
+			d.jobWaitGroup.Done() // Must call Done() since job was pulled from queue
 			return
 		default:
+		}
+
+		// Also check monitoringActive flag
+		if !d.monitoringActive {
+			d.Logf("[Worker %d] Monitoring inactive, skipping job", id)
+			d.jobWaitGroup.Done()
+			continue
 		}
 
 		d.stats.mutex.Lock()

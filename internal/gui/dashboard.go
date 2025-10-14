@@ -51,10 +51,12 @@ func (s *AppState) showDashboardScreen() {
 	logScroll.SetMinSize(fyne.NewSize(600, 200))
 
 	stopBtn := widget.NewButton("Stop Monitoring", func() {
+		// Stop is now instant - daemon kills workers immediately
 		if err := s.daemonClient.Stop(); err != nil {
 			dialog.ShowError(fmt.Errorf("failed to stop: %v", err), s.window)
 			return
 		}
+		s.stopDashboardRefresh()
 		s.showDaemonStoppedScreen()
 	})
 
@@ -68,11 +70,17 @@ func (s *AppState) showDashboardScreen() {
 	})
 
 	disconnectBtn := widget.NewButton("Disconnect", func() {
+		s.stopDashboardRefresh()
 		s.disconnect()
 		s.showSSHConnectionScreen()
 	})
 
-	// Auto-refresh timer
+	// Stop any existing auto-refresh goroutine and wait for it to finish
+	s.stopDashboardRefresh()
+
+	// Create new stop channels and start auto-refresh timer
+	s.dashboardStopChan = make(chan bool)
+	s.dashboardStopped = make(chan bool)
 	go s.autoRefreshDashboard(logArea, statusIndicator, infoLabel)
 
 	// Layout
@@ -104,43 +112,83 @@ func (s *AppState) showDashboardScreen() {
 func (s *AppState) autoRefreshDashboard(logArea, statusIndicator, infoLabel *widget.Label) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-
-	for range ticker.C {
-		if s.daemonClient == nil {
-			return // Disconnected
+	defer func() {
+		// Signal that we've stopped
+		if s.dashboardStopped != nil {
+			close(s.dashboardStopped)
 		}
+	}()
 
-		// Get updated status
-		status, err := s.daemonClient.GetStatus()
-		if err != nil {
-			continue // Skip this update
-		}
+	for {
+		select {
+		case <-s.dashboardStopChan:
+			return // Stop signal received
+		case <-ticker.C:
+			if s.daemonClient == nil {
+				return // Disconnected
+			}
 
-		// Update status indicator
-		fyne.Do(func() {
-			statusIndicator.SetText(fmt.Sprintf("● %s", strings.ToUpper(string(status.State))))
-		})
+			// Get updated status (with error handling to prevent crashes)
+			status, err := s.daemonClient.GetStatus()
+			if err != nil {
+				continue // Skip this update if daemon is busy or error occurs
+			}
 
-		// Update info
-		infoText := fmt.Sprintf(
-			"Monitoring %d websites\nEmail alerts: %s\n\nTotal checks: %d\nLast check: %s",
-			status.WebsiteCount,
-			status.Email,
-			status.Stats.TotalChecks,
-			formatTime(status.Stats.LastCheckTime),
-		)
-		fyne.Do(func() {
-			infoLabel.SetText(infoText)
-		})
-
-		// Update logs
-		logs, err := s.daemonClient.GetLogs(50)
-		if err == nil {
-			logText := strings.Join(logs, "\n")
+			// Update status indicator
 			fyne.Do(func() {
-				logArea.SetText(logText)
+				if statusIndicator != nil {
+					statusIndicator.SetText(fmt.Sprintf("● %s", strings.ToUpper(string(status.State))))
+				}
 			})
+
+			// Update info
+			infoText := fmt.Sprintf(
+				"Monitoring %d websites\nEmail alerts: %s\n\nTotal checks: %d\nLast check: %s",
+				status.WebsiteCount,
+				status.Email,
+				status.Stats.TotalChecks,
+				formatTime(status.Stats.LastCheckTime),
+			)
+			fyne.Do(func() {
+				if infoLabel != nil {
+					infoLabel.SetText(infoText)
+				}
+			})
+
+			// Update logs
+			logs, err := s.daemonClient.GetLogs(50)
+			if err == nil {
+				logText := strings.Join(logs, "\n")
+				fyne.Do(func() {
+					if logArea != nil {
+						logArea.SetText(logText)
+					}
+				})
+			}
 		}
+	}
+}
+
+// stopDashboardRefresh stops any running dashboard refresh goroutine and waits for it to finish
+func (s *AppState) stopDashboardRefresh() {
+	if s.dashboardStopChan != nil {
+		// Send stop signal
+		select {
+		case s.dashboardStopChan <- true:
+			// Signal sent successfully, now wait for goroutine to finish
+			if s.dashboardStopped != nil {
+				select {
+				case <-s.dashboardStopped:
+					// Goroutine has stopped
+				case <-time.After(2 * time.Second):
+					// Timeout waiting for goroutine to stop
+				}
+			}
+		default:
+			// Channel already closed or receiver not listening
+		}
+		s.dashboardStopChan = nil
+		s.dashboardStopped = nil
 	}
 }
 
