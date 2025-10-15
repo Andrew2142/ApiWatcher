@@ -56,6 +56,17 @@ func (s *AppState) showDashboardScreen() {
 		container.NewHBox(statusIndicator, refreshButton),
 	)
 
+	// SMTP warning if not configured
+	var smtpWarning *fyne.Container
+	if !status.HasSMTP {
+		warningLabel := widget.NewLabel("⚠️  SMTP not configured on daemon - email alerts will not work!")
+		warningLabel.TextStyle.Bold = true
+		configureBtn := widget.NewButton("Configure Now", func() {
+			s.showEditSMTPScreen()
+		})
+		smtpWarning = container.NewBorder(nil, nil, warningLabel, configureBtn)
+	}
+
 	// Create site list and details panel
 	selectedIndex := -1
 	selectedSiteIndex = &selectedIndex
@@ -154,19 +165,27 @@ func (s *AppState) showDashboardScreen() {
 		s.showSSHConnectionScreen()
 	})
 
+	smtpBtn := widget.NewButton("SMTP Settings", func() {
+		s.showEditSMTPScreen()
+	})
+
 	controlButtons := container.NewHBox(
 		stopBtn,
 		clearLogsBtn,
+		smtpBtn,
 		layout.NewSpacer(),
 		disconnectBtn,
 	)
 
 	// Main layout
+	topSection := container.NewVBox(headerRow)
+	if smtpWarning != nil {
+		topSection.Add(smtpWarning)
+	}
+	topSection.Add(widget.NewSeparator())
+
 	content := container.NewBorder(
-		container.NewVBox(
-			headerRow,
-			widget.NewSeparator(),
-		),
+		topSection,
 		container.NewVBox(
 			widget.NewSeparator(),
 			controlButtons,

@@ -194,6 +194,58 @@ func (c *Client) ClearLogs() error {
 	return nil
 }
 
+// SetSMTP sends SMTP configuration to the daemon
+func (c *Client) SetSMTP(host, port, username, password, from string) error {
+	payload := SetSMTPPayload{
+		Host:     host,
+		Port:     port,
+		Username: username,
+		Password: password,
+		From:     from,
+	}
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	resp, err := c.SendCommand(Command{
+		Type:    CmdSetSMTP,
+		Payload: payloadJSON,
+	})
+	if err != nil {
+		return err
+	}
+	if !resp.Success {
+		return fmt.Errorf("failed to set SMTP: %s", resp.Message)
+	}
+	return nil
+}
+
+// GetSMTP gets SMTP configuration from the daemon (without password)
+func (c *Client) GetSMTP() (map[string]string, error) {
+	resp, err := c.SendCommand(Command{Type: CmdGetSMTP})
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("failed to get SMTP: %s", resp.Message)
+	}
+
+	// Convert data to map[string]string
+	data, err := json.Marshal(resp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal data: %w", err)
+	}
+
+	var smtpData map[string]string
+	if err := json.Unmarshal(data, &smtpData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal SMTP data: %w", err)
+	}
+
+	return smtpData, nil
+}
+
 // GetWebsiteStats gets statistics for all monitored websites
 func (c *Client) GetWebsiteStats() ([]WebsiteStatsResponse, error) {
 	resp, err := c.SendCommand(Command{Type: CmdGetWebsiteStats})

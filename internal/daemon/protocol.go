@@ -34,6 +34,8 @@ const (
 	CmdClearLogs       = "CLEAR_LOGS"
 	CmdGetStats        = "GET_STATS"
 	CmdGetWebsiteStats = "GET_WEBSITE_STATS"
+	CmdSetSMTP         = "SET_SMTP"
+	CmdGetSMTP         = "GET_SMTP"
 	CmdPing            = "PING"
 	CmdShutdown        = "SHUTDOWN"
 )
@@ -50,12 +52,22 @@ type GetLogsPayload struct {
 	Lines int `json:"lines"`
 }
 
+// SetSMTPPayload is the payload for SET_SMTP command
+type SetSMTPPayload struct {
+	Host     string `json:"host"`
+	Port     string `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	From     string `json:"from"`
+}
+
 // StatusData is the response data for STATUS command
 type StatusData struct {
 	State        State     `json:"state"`
 	WebsiteCount int       `json:"website_count"`
 	Email        string    `json:"email"`
 	HasConfig    bool      `json:"has_config"`
+	HasSMTP      bool      `json:"has_smtp"`
 	Stats        StatsData `json:"stats"`
 }
 
@@ -123,6 +135,12 @@ func (d *Daemon) HandleCommand(cmd Command) Response {
 	case CmdGetWebsiteStats:
 		return d.handleGetWebsiteStats()
 
+	case CmdSetSMTP:
+		return d.handleSetSMTP(cmd.Payload)
+
+	case CmdGetSMTP:
+		return d.handleGetSMTP()
+
 	default:
 		return Response{
 			Success: false,
@@ -135,9 +153,14 @@ func (d *Daemon) handleStatus() Response {
 	cfg := d.GetConfig()
 	stats := d.GetStatsData()
 
+	// Check if SMTP is configured
+	smtpConfig, _ := config.LoadSMTPConfig()
+	hasSMTP := smtpConfig != nil && smtpConfig.Host != "" && smtpConfig.Port != ""
+
 	data := StatusData{
 		State:     d.GetState(),
 		HasConfig: cfg != nil,
+		HasSMTP:   hasSMTP,
 		Stats:     stats,
 	}
 
@@ -276,4 +299,54 @@ func formatTimeString(t time.Time) string {
 		return ""
 	}
 	return t.Format("2006-01-02 15:04:05")
+}
+
+func (d *Daemon) handleSetSMTP(payload json.RawMessage) Response {
+	var smtpPayload SetSMTPPayload
+	if err := json.Unmarshal(payload, &smtpPayload); err != nil {
+		return Response{Success: false, Message: fmt.Sprintf("invalid payload: %v", err)}
+	}
+
+	// Convert to config.SMTPConfig
+	smtpConfig := &config.SMTPConfig{
+		Host:     smtpPayload.Host,
+		Port:     smtpPayload.Port,
+		Username: smtpPayload.Username,
+		Password: smtpPayload.Password,
+		From:     smtpPayload.From,
+	}
+
+	// Validate
+	if err := config.ValidateSMTPConfig(smtpConfig); err != nil {
+		return Response{Success: false, Message: fmt.Sprintf("validation error: %v", err)}
+	}
+
+	// Save to daemon's local storage
+	if err := config.SaveSMTPConfig(smtpConfig); err != nil {
+		return Response{Success: false, Message: fmt.Sprintf("failed to save SMTP config: %v", err)}
+	}
+
+	d.Logf("SMTP configuration updated successfully")
+	return Response{Success: true, Message: "SMTP configuration saved"}
+}
+
+func (d *Daemon) handleGetSMTP() Response {
+	smtpConfig, err := config.LoadSMTPConfig()
+	if err != nil {
+		return Response{Success: false, Message: fmt.Sprintf("failed to load SMTP config: %v", err)}
+	}
+
+	if smtpConfig == nil {
+		return Response{Success: false, Message: "SMTP not configured"}
+	}
+
+	// Don't send password back for security
+	response := map[string]string{
+		"host":     smtpConfig.Host,
+		"port":     smtpConfig.Port,
+		"username": smtpConfig.Username,
+		"from":     smtpConfig.From,
+	}
+
+	return Response{Success: true, Data: response}
 }

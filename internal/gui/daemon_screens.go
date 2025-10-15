@@ -376,10 +376,13 @@ func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
 			statusLabel.Refresh()
 		})
 
-		// Wait a moment, then connect to the daemon
+		// Wait a moment, then prompt for SMTP setup, then connect to daemon
 		time.Sleep(2 * time.Second)
 		fyne.Do(func() {
-			s.connectToDaemon()
+			// Show SMTP setup prompt, which will then connect to daemon
+			s.showSMTPSetupPrompt(func() {
+				s.connectToDaemon()
+			})
 		})
 	}()
 }
