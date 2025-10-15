@@ -35,6 +35,7 @@ type Daemon struct {
 	mutex             sync.RWMutex
 	logBuffer         *LogBuffer
 	stats             *Stats
+	websiteStats      *WebsiteStatsMap
 	dataDir           string
 	monitoringActive  bool
 	jobWaitGroup      sync.WaitGroup
@@ -61,13 +62,69 @@ type StatsData struct {
 	LastCheckTime time.Time
 }
 
+// WebsiteStats holds statistics for a single website
+type WebsiteStats struct {
+	URL                  string
+	TotalChecks          int
+	FailedChecks         int
+	ConsecutiveFailures  int
+	ConsecutiveSuccesses int
+	EmailsSent           int
+	LastCheckTime        time.Time
+	LastFailureTime      time.Time
+	LastSuccessTime      time.Time
+	FirstMonitoredAt     time.Time
+
+	// Performance metrics
+	ResponseTimes       []time.Duration // Ring buffer of last 100 response times
+	AverageResponseTime time.Duration
+
+	// Uptime tracking
+	UptimeLastHour       float64 // Percentage
+	UptimeLast24Hours    float64 // Percentage
+	UptimeLast7Days      float64 // Percentage
+	OverallHealthPercent float64 // Total success rate
+
+	// Downtime tracking
+	LastDowntimeStart    time.Time
+	LastDowntimeEnd      time.Time
+	LastDowntimeDuration time.Duration
+	LongestDowntime      time.Duration
+	TotalDowntime        time.Duration
+
+	// Alert tracking
+	LastAlertSent time.Time
+
+	// Health trend
+	HealthTrend string // "improving", "stable", "degrading"
+
+	// Track recent checks for time-window calculations
+	CheckHistory []CheckRecord // Recent checks for uptime calculations
+
+	mutex sync.RWMutex
+}
+
+// CheckRecord represents a single check result for uptime calculations
+type CheckRecord struct {
+	Timestamp time.Time
+	Success   bool
+	Duration  time.Duration
+}
+
+// WebsiteStatsMap manages statistics for all monitored websites
+type WebsiteStatsMap struct {
+	stats map[string]*WebsiteStats
+	mutex sync.RWMutex
+}
+
 // DaemonState represents the persisted state
 type DaemonState struct {
-	State       State             `json:"state"`
-	Config      *config.Config    `json:"config"`
-	SnapshotIDs map[string]string `json:"snapshot_ids"`
-	Stats       *Stats            `json:"stats"`
-	LastSaved   time.Time         `json:"last_saved"`
+	State        State                    `json:"state"`
+	Config       *config.Config           `json:"config"`
+	SnapshotIDs  map[string]string        `json:"snapshot_ids"`
+	Stats        *Stats                   `json:"stats"`
+	WebsiteStats map[string]*WebsiteStats `json:"website_stats"`
+	LastSaved    time.Time                `json:"last_saved"`
 }
 
 // New creates a new daemon instance
@@ -82,7 +139,10 @@ func New(dataDir string) (*Daemon, error) {
 		stopChan:       make(chan bool),
 		logBuffer:      NewLogBuffer(1000),
 		stats:          &Stats{},
-		dataDir:        dataDir,
+		websiteStats: &WebsiteStatsMap{
+			stats: make(map[string]*WebsiteStats),
+		},
+		dataDir: dataDir,
 	}
 
 	_ = d.loadState() // silently ignore load errors
@@ -113,6 +173,47 @@ func (d *Daemon) GetStatsData() StatsData {
 		AlertsSent:    d.stats.AlertsSent,
 		LastCheckTime: d.stats.LastCheckTime,
 	}
+}
+
+// GetOrCreateWebsiteStats gets or creates stats for a website
+func (d *Daemon) GetOrCreateWebsiteStats(url string) *WebsiteStats {
+	d.websiteStats.mutex.Lock()
+	defer d.websiteStats.mutex.Unlock()
+
+	stats, exists := d.websiteStats.stats[url]
+	if !exists {
+		stats = &WebsiteStats{
+			URL:              url,
+			FirstMonitoredAt: time.Now(),
+			ResponseTimes:    make([]time.Duration, 0, 100),
+			CheckHistory:     make([]CheckRecord, 0, 1000),
+		}
+		d.websiteStats.stats[url] = stats
+	}
+	return stats
+}
+
+// GetWebsiteStats gets stats for a specific website
+func (d *Daemon) GetWebsiteStats(url string) *WebsiteStats {
+	d.websiteStats.mutex.RLock()
+	defer d.websiteStats.mutex.RUnlock()
+	return d.websiteStats.stats[url]
+}
+
+// GetAllWebsiteStats returns a copy of all website stats
+func (d *Daemon) GetAllWebsiteStats() map[string]*WebsiteStats {
+	d.websiteStats.mutex.RLock()
+	defer d.websiteStats.mutex.RUnlock()
+
+	result := make(map[string]*WebsiteStats, len(d.websiteStats.stats))
+	for url, stats := range d.websiteStats.stats {
+		// Return a copy to avoid race conditions
+		stats.mutex.RLock()
+		statsCopy := *stats
+		stats.mutex.RUnlock()
+		result[url] = &statsCopy
+	}
+	return result
 }
 
 func (d *Daemon) SetConfig(cfg *config.Config, snapshots map[string]*snapshot.Snapshot) error {
@@ -148,12 +249,16 @@ func (d *Daemon) saveState() error {
 		}
 	}
 
+	// Get a copy of website stats for persistence
+	websiteStats := d.GetAllWebsiteStats()
+
 	state := DaemonState{
-		State:       d.state,
-		Config:      d.config,
-		SnapshotIDs: snapshotIDs,
-		Stats:       d.stats,
-		LastSaved:   time.Now(),
+		State:        d.state,
+		Config:       d.config,
+		SnapshotIDs:  snapshotIDs,
+		Stats:        d.stats,
+		WebsiteStats: websiteStats,
+		LastSaved:    time.Now(),
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -182,6 +287,19 @@ func (d *Daemon) loadState() error {
 	d.state = state.State
 	d.config = state.Config
 	d.stats = state.Stats
+
+	// Restore website stats
+	if state.WebsiteStats != nil {
+		d.websiteStats.mutex.Lock()
+		d.websiteStats.stats = state.WebsiteStats
+		// Ensure URL field is set from map key
+		for url, stats := range d.websiteStats.stats {
+			if stats.URL == "" {
+				stats.URL = url
+			}
+		}
+		d.websiteStats.mutex.Unlock()
+	}
 
 	if state.SnapshotIDs != nil {
 		for url, snapshotID := range state.SnapshotIDs {
@@ -417,25 +535,31 @@ func (d *Daemon) worker(ctx context.Context, id int) {
 		default:
 		}
 
-		// Check monitoringActive flag
-		if !d.monitoringActive {
-			d.Logf("[Worker %d] Monitoring inactive, skipping job", id)
-			d.jobWaitGroup.Done()
-			continue
-		}
-
-		d.stats.mutex.Lock()
-		d.stats.TotalChecks++
-		d.stats.mutex.Unlock()
-
-		// Pass context to ProcessJob so it can abort mid-operation
-		if err := monitor.ProcessJob(ctx, id, job, d); err != nil {
-			d.stats.mutex.Lock()
-			d.stats.FailedChecks++
-			d.stats.mutex.Unlock()
-		}
-
+	// Check monitoringActive flag
+	if !d.monitoringActive {
+		d.Logf("[Worker %d] Monitoring inactive, skipping job", id)
 		d.jobWaitGroup.Done()
+		continue
+	}
+
+	d.stats.mutex.Lock()
+	d.stats.TotalChecks++
+	d.stats.mutex.Unlock()
+
+	// Pass context to ProcessJob so it can abort mid-operation
+	result := monitor.ProcessJob(ctx, id, job, d)
+
+	// Update global stats
+	if !result.Success {
+		d.stats.mutex.Lock()
+		d.stats.FailedChecks++
+		d.stats.mutex.Unlock()
+	}
+
+	// Update per-website stats
+	d.UpdateWebsiteStats(job.Website, result.Success, result.Duration, result.AlertSent)
+
+	d.jobWaitGroup.Done()
 	}
 
 	d.Logf("[Worker %d] Job queue closed, exiting", id)

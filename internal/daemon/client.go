@@ -193,3 +193,27 @@ func (c *Client) ClearLogs() error {
 	}
 	return nil
 }
+
+// GetWebsiteStats gets statistics for all monitored websites
+func (c *Client) GetWebsiteStats() ([]WebsiteStatsResponse, error) {
+	resp, err := c.SendCommand(Command{Type: CmdGetWebsiteStats})
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("failed to get website stats: %s", resp.Message)
+	}
+
+	// Convert data to []WebsiteStatsResponse
+	data, err := json.Marshal(resp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal data: %w", err)
+	}
+
+	var stats []WebsiteStatsResponse
+	if err := json.Unmarshal(data, &stats); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal website stats: %w", err)
+	}
+
+	return stats, nil
+}

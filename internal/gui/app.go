@@ -14,19 +14,18 @@ import (
 )
 
 type AppState struct {
-	app                 fyne.App
-	window              fyne.Window
-	cfg                 *config.Config
-	snapshotsByURL      map[string]*snapshot.Snapshot
-	loadedFromSaved     bool
-	monitoringActive    bool
-	jobQueue            chan monitor.Job
-	statusLabel         *widget.Label
-	sshConn             *remote.SSHConnection
-	daemonClient        *daemon.Client
-	localTunnelPort     int
-	dashboardStopChan   chan bool
-	dashboardStopped    chan bool
+	app                  fyne.App
+	window               fyne.Window
+	cfg                  *config.Config
+	snapshotsByURL       map[string]*snapshot.Snapshot
+	loadedFromSaved      bool
+	monitoringActive     bool
+	jobQueue             chan monitor.Job
+	statusLabel          *widget.Label
+	sshConn              *remote.SSHConnection
+	daemonClient         *daemon.Client
+	localTunnelPort      int
+	cachedWebsiteStats   []daemon.WebsiteStatsResponse
 }
 
 func Run() {

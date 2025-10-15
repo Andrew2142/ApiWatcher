@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 	"url-checker/internal/config"
 	"url-checker/internal/snapshot"
 )
@@ -22,18 +23,19 @@ type Response struct {
 
 // Command types
 const (
-	CmdStatus    = "STATUS"
-	CmdStart     = "START"
-	CmdStop      = "STOP"
-	CmdPause     = "PAUSE"
-	CmdResume    = "RESUME"
-	CmdSetConfig = "SET_CONFIG"
-	CmdGetConfig = "GET_CONFIG"
-	CmdGetLogs   = "GET_LOGS"
-	CmdClearLogs = "CLEAR_LOGS"
-	CmdGetStats  = "GET_STATS"
-	CmdPing      = "PING"
-	CmdShutdown  = "SHUTDOWN"
+	CmdStatus          = "STATUS"
+	CmdStart           = "START"
+	CmdStop            = "STOP"
+	CmdPause           = "PAUSE"
+	CmdResume          = "RESUME"
+	CmdSetConfig       = "SET_CONFIG"
+	CmdGetConfig       = "GET_CONFIG"
+	CmdGetLogs         = "GET_LOGS"
+	CmdClearLogs       = "CLEAR_LOGS"
+	CmdGetStats        = "GET_STATS"
+	CmdGetWebsiteStats = "GET_WEBSITE_STATS"
+	CmdPing            = "PING"
+	CmdShutdown        = "SHUTDOWN"
 )
 
 // SetConfigPayload is the payload for SET_CONFIG command
@@ -55,6 +57,31 @@ type StatusData struct {
 	Email        string    `json:"email"`
 	HasConfig    bool      `json:"has_config"`
 	Stats        StatsData `json:"stats"`
+}
+
+// WebsiteStatsResponse is the response data for individual website stats
+type WebsiteStatsResponse struct {
+	URL                   string  `json:"url"`
+	TotalChecks           int     `json:"total_checks"`
+	FailedChecks          int     `json:"failed_checks"`
+	ConsecutiveFailures   int     `json:"consecutive_failures"`
+	ConsecutiveSuccesses  int     `json:"consecutive_successes"`
+	EmailsSent            int     `json:"emails_sent"`
+	LastCheckTime         string  `json:"last_check_time"`
+	LastFailureTime       string  `json:"last_failure_time"`
+	LastSuccessTime       string  `json:"last_success_time"`
+	FirstMonitoredAt      string  `json:"first_monitored_at"`
+	AverageResponseTime   string  `json:"average_response_time"`
+	UptimeLastHour        float64 `json:"uptime_last_hour"`
+	UptimeLast24Hours     float64 `json:"uptime_last_24_hours"`
+	UptimeLast7Days       float64 `json:"uptime_last_7_days"`
+	OverallHealthPercent  float64 `json:"overall_health_percent"`
+	LastDowntimeDuration  string  `json:"last_downtime_duration"`
+	LongestDowntime       string  `json:"longest_downtime"`
+	TotalDowntime         string  `json:"total_downtime"`
+	LastAlertSent         string  `json:"last_alert_sent"`
+	HealthTrend           string  `json:"health_trend"`
+	CurrentStatus         string  `json:"current_status"`
 }
 
 // HandleCommand processes a command and returns a response
@@ -92,6 +119,9 @@ func (d *Daemon) HandleCommand(cmd Command) Response {
 
 	case CmdGetStats:
 		return d.handleGetStats()
+
+	case CmdGetWebsiteStats:
+		return d.handleGetWebsiteStats()
 
 	default:
 		return Response{
@@ -204,4 +234,46 @@ func (d *Daemon) handleClearLogs() Response {
 func (d *Daemon) handleGetStats() Response {
 	stats := d.GetStatsData()
 	return Response{Success: true, Data: stats}
+}
+
+func (d *Daemon) handleGetWebsiteStats() Response {
+	websiteStats := d.GetAllWebsiteStats()
+	
+	// Convert to response format with formatted strings
+	responses := make([]WebsiteStatsResponse, 0, len(websiteStats))
+	for _, stats := range websiteStats {
+		response := WebsiteStatsResponse{
+			URL:                  stats.URL,
+			TotalChecks:          stats.TotalChecks,
+			FailedChecks:         stats.FailedChecks,
+			ConsecutiveFailures:  stats.ConsecutiveFailures,
+			ConsecutiveSuccesses: stats.ConsecutiveSuccesses,
+			EmailsSent:           stats.EmailsSent,
+			LastCheckTime:        formatTimeString(stats.LastCheckTime),
+			LastFailureTime:      formatTimeString(stats.LastFailureTime),
+			LastSuccessTime:      formatTimeString(stats.LastSuccessTime),
+			FirstMonitoredAt:     formatTimeString(stats.FirstMonitoredAt),
+			AverageResponseTime:  stats.AverageResponseTime.String(),
+			UptimeLastHour:       stats.UptimeLastHour,
+			UptimeLast24Hours:    stats.UptimeLast24Hours,
+			UptimeLast7Days:      stats.UptimeLast7Days,
+			OverallHealthPercent: stats.OverallHealthPercent,
+			LastDowntimeDuration: stats.LastDowntimeDuration.String(),
+			LongestDowntime:      stats.LongestDowntime.String(),
+			TotalDowntime:        stats.TotalDowntime.String(),
+			LastAlertSent:        formatTimeString(stats.LastAlertSent),
+			HealthTrend:          stats.HealthTrend,
+			CurrentStatus:        stats.GetCurrentStatus(),
+		}
+		responses = append(responses, response)
+	}
+	
+	return Response{Success: true, Data: responses}
+}
+
+func formatTimeString(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02 15:04:05")
 }
