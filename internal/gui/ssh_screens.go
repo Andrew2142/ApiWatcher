@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"url-checker/internal/daemon"
 	"url-checker/internal/remote"
 
 	"fyne.io/fyne/v2"
@@ -70,6 +71,10 @@ func (s *AppState) showSSHConnectionScreen() {
 			s.showNewServerScreen()
 		})
 
+		localBtn := widget.NewButton("Run Locally", func() {
+			s.handleLocalConnection()
+		})
+
 		scroll := container.NewScroll(radio)
 		scroll.SetMinSize(fyne.NewSize(400, 300))
 
@@ -81,17 +86,29 @@ func (s *AppState) showSSHConnectionScreen() {
 			widget.NewLabel(""),
 			connectBtn,
 			newBtn,
+			widget.NewLabel(""),
+			widget.NewLabel("Or run the daemon locally:"),
+			localBtn,
 		)
 	} else {
 		// No saved servers, show new server form
+		newBtn := widget.NewButton("Add New Server", func() {
+			s.showNewServerScreen()
+		})
+
+		localBtn := widget.NewButton("Run Locally", func() {
+			s.handleLocalConnection()
+		})
+
 		content = container.NewVBox(
 			title,
 			widget.NewLabel(""),
-			widget.NewLabel("No saved servers found. Please add a new server."),
+			widget.NewLabel("No saved servers found."),
 			widget.NewLabel(""),
-			widget.NewButton("Add New Server", func() {
-				s.showNewServerScreen()
-			}),
+			newBtn,
+			widget.NewLabel(""),
+			widget.NewLabel("Or run the daemon locally:"),
+			localBtn,
 		)
 	}
 
@@ -331,6 +348,66 @@ func (s *AppState) connectToServer(config *remote.SSHConfig) {
 			// Daemon installed - connect to it
 			fyne.Do(func() {
 				s.connectToDaemon()
+			})
+		}
+	}()
+}
+
+// handleLocalConnection handles the local daemon connection flow
+func (s *AppState) handleLocalConnection() {
+	progress := dialog.NewProgressInfinite("Connecting", "Connecting to local daemon...", s.window)
+	progress.Show()
+
+	go func() {
+		// Try to connect to local daemon
+		err := s.connectToLocalDaemon()
+		if err != nil {
+			fyne.Do(func() {
+				progress.Hide()
+				dialog.ShowError(err, s.window)
+			})
+			return
+		}
+
+		// Get daemon status
+		status, err := s.daemonClient.GetStatus()
+		if err != nil {
+			fyne.Do(func() {
+				progress.Hide()
+				dialog.ShowError(fmt.Errorf("failed to get daemon status: %v", err), s.window)
+			})
+			return
+		}
+
+		log.Printf("Connected to local daemon. State: %s, HasConfig: %v", status.State, status.HasConfig)
+
+		fyne.Do(func() {
+			progress.Hide()
+		})
+
+		// Show appropriate screen based on daemon state
+		switch status.State {
+		case daemon.StateRunning:
+			fyne.Do(func() {
+				s.showDashboardScreen()
+			})
+		case daemon.StatePaused:
+			fyne.Do(func() {
+				s.showDashboardScreen()
+			})
+		case daemon.StateStopped:
+			if status.HasConfig {
+				fyne.Do(func() {
+					s.showDaemonStoppedScreen()
+				})
+			} else {
+				fyne.Do(func() {
+					s.showLoadConfigScreen()
+				})
+			}
+		default:
+			fyne.Do(func() {
+				s.showLoadConfigScreen()
 			})
 		}
 	}()

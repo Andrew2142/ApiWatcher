@@ -26,6 +26,7 @@ type AppState struct {
 	daemonClient         *daemon.Client
 	localTunnelPort      int
 	cachedWebsiteStats   []daemon.WebsiteStatsResponse
+	isLocalMode          bool
 }
 
 func Run() {

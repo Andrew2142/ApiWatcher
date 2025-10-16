@@ -33,7 +33,14 @@ func (s *AppState) showDashboardScreen() {
 
 	// Title and connection info
 	title := widget.NewLabelWithStyle("Monitoring Dashboard", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	connInfo := widget.NewLabel("Connected to: " + s.sshConn.Config().Host)
+	
+	var connInfoText string
+	if s.isLocalMode {
+		connInfoText = "Connected to: Local Daemon (localhost:9876)"
+	} else {
+		connInfoText = "Connected to: " + s.sshConn.Config().Host
+	}
+	connInfo := widget.NewLabel(connInfoText)
 	connInfo.TextStyle.Italic = true
 
 	// Status indicator
@@ -89,7 +96,7 @@ func (s *AppState) showDashboardScreen() {
 			urlLabel := obj.(*widget.Label)
 
 			// Just show the URL
-			urlLabel.Text = stats.URL
+			urlLabel.SetText(stats.URL)
 			if int(id) == *selectedSiteIndex {
 				urlLabel.TextStyle.Bold = true
 			} else {
