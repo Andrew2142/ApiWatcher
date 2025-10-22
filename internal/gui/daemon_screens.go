@@ -389,6 +389,9 @@ func (s *AppState) installDaemon(statusLabel, logArea *widget.Label) {
 
 // showDaemonStoppedScreen shows when daemon is installed but monitoring is stopped
 func (s *AppState) showDaemonStoppedScreen() {
+	// Stop auto-refresh when leaving dashboard
+	s.stopAutoRefresh()
+
 	title := widget.NewLabel("Daemon Stopped")
 	title.TextStyle.Bold = true
 
@@ -498,6 +501,9 @@ func executeLocalCommand(command string) (string, error) {
 
 // disconnect closes connections to daemon and SSH
 func (s *AppState) disconnect() {
+	// Stop auto-refresh timer
+	s.stopAutoRefresh()
+
 	if s.daemonClient != nil {
 		s.daemonClient.Close()
 		s.daemonClient = nil

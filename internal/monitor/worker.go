@@ -114,11 +114,18 @@ func ProcessJob(ctx context.Context, id int, job Job, logger Logger) JobResult {
 
 	// Run snapshot if configured
 	if job.Snapshot != nil {
-		logger.Logf("[WORKER %d] Running snapshot for %s", id, job.Website)
+		snapshotStartTime := time.Now()
+		logger.Logf("[WORKER %d] 🎬 Starting snapshot replay for %s (Snapshot ID: %s, Actions: %d)",
+			id, job.Website, job.Snapshot.ID, len(job.Snapshot.Actions))
+
 		if err := snapshot.Replay(job.Snapshot); err != nil {
-			logger.Logf("[WORKER %d] Snapshot replay error for %s (%s): %v", id, job.Website, job.Snapshot.ID, err)
+			snapshotDuration := time.Since(snapshotStartTime)
+			logger.Logf("[WORKER %d] ❌ Snapshot replay FAILED after %v for %s (ID: %s): %v",
+				id, snapshotDuration, job.Website, job.Snapshot.ID, err)
 		} else {
-			logger.Logf("[WORKER %d] Snapshot replay finished for %s (%s)", id, job.Website, job.Snapshot.ID)
+			snapshotDuration := time.Since(snapshotStartTime)
+			logger.Logf("[WORKER %d] ✅ Snapshot replay COMPLETED in %v for %s (ID: %s)",
+				id, snapshotDuration, job.Website, job.Snapshot.ID)
 			result.SnapshotRan = true
 		}
 	}

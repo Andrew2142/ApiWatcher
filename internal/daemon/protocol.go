@@ -217,13 +217,23 @@ func (d *Daemon) handleSetConfig(payload json.RawMessage) Response {
 
 	// Load snapshots if provided
 	snapshots := make(map[string]*snapshot.Snapshot)
-	// Note: Snapshot loading would happen here if IDs are provided
-	// For now, we'll implement this when we handle snapshot transfer
+	for url, snapshotID := range configPayload.SnapshotIDs {
+		if snapshotID != "" {
+			snap, err := snapshot.LoadByID(snapshotID)
+			if err != nil {
+				d.Logf("[WARNING] Failed to load snapshot %s for %s: %v", snapshotID, url, err)
+			} else {
+				snapshots[url] = snap
+				d.Logf("[CONFIG] Loaded snapshot %s for %s (%d actions)", snapshotID, url, len(snap.Actions))
+			}
+		}
+	}
 
 	if err := d.SetConfig(cfg, snapshots); err != nil {
 		return Response{Success: false, Message: err.Error()}
 	}
 
+	d.Logf("[CONFIG] Configuration updated: %d websites, %d snapshots", len(cfg.Websites), len(snapshots))
 	return Response{Success: true, Message: "configuration updated"}
 }
 

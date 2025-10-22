@@ -196,11 +196,12 @@ func (s *AppState) showCreateSnapshotScreen(url string, sites []string, currentI
 	recordBtn := widget.NewButton("Record Snapshot", func() {
 		snapshotName := strings.TrimSpace(nameEntry.Text)
 
-		dialog.ShowInformation("Recording", "Browser will open. Perform your actions, then close the browser.", s.window)
+		// Create channel for stopping the recording
+		stopChan := make(chan bool)
 
-		// Record in background
+		// Start recording in background
 		go func() {
-			snap, err := snapshot.Record(url, snapshotName)
+			snap, err := snapshot.RecordWithCallback(url, snapshotName, stopChan)
 			if err != nil {
 				log.Printf("Recording failed for %s: %v\n", url, err)
 				return
@@ -220,6 +221,23 @@ func (s *AppState) showCreateSnapshotScreen(url string, sites []string, currentI
 				s.showSnapshotForSite(sites, currentIndex+1)
 			})
 		}()
+
+		// Show dialog that allows user to end recording
+		confirmDialog := dialog.NewConfirm(
+			"Recording",
+			"Browser will open. Perform your actions, then click OK to finish recording.",
+			func(confirmed bool) {
+				if confirmed {
+					stopChan <- false // false = not cancelled
+				} else {
+					stopChan <- true // true = cancelled
+				}
+			},
+			s.window,
+		)
+		confirmDialog.SetConfirmText("OK")
+		confirmDialog.SetDismissText("Cancel")
+		confirmDialog.Show()
 	})
 
 	skipBtn := widget.NewButton("Skip This Site", func() {

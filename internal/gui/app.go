@@ -2,6 +2,7 @@ package gui
 
 import (
 	"log"
+	"time"
 	"url-checker/internal/config"
 	"url-checker/internal/daemon"
 	"url-checker/internal/monitor"
@@ -27,6 +28,8 @@ type AppState struct {
 	localTunnelPort      int
 	cachedWebsiteStats   []daemon.WebsiteStatsResponse
 	isLocalMode          bool
+	refreshTicker        *time.Ticker
+	stopRefresh          chan bool
 }
 
 func Run() {

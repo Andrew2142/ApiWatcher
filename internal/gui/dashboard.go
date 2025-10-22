@@ -3,6 +3,7 @@ package gui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"url-checker/internal/daemon"
 
@@ -56,11 +57,15 @@ func (s *AppState) showDashboardScreen() {
 		s.refreshDashboard(siteList, detailsContainer, logArea, statusIndicator, selectedSiteIndex)
 	})
 
+	settingsButton := widget.NewButton("Settings", func() {
+		s.showEditSMTPScreen()
+	})
+
 	// Header row
 	headerRow := container.NewBorder(
 		nil, nil,
 		container.NewHBox(title, connInfo),
-		container.NewHBox(statusIndicator, refreshButton),
+		container.NewHBox(statusIndicator, refreshButton, settingsButton),
 	)
 
 	// SMTP warning if not configured
@@ -172,14 +177,9 @@ func (s *AppState) showDashboardScreen() {
 		s.showSSHConnectionScreen()
 	})
 
-	smtpBtn := widget.NewButton("SMTP Settings", func() {
-		s.showEditSMTPScreen()
-	})
-
 	controlButtons := container.NewHBox(
 		stopBtn,
 		clearLogsBtn,
-		smtpBtn,
 		layout.NewSpacer(),
 		disconnectBtn,
 	)
@@ -206,49 +206,64 @@ func (s *AppState) showDashboardScreen() {
 	)
 
 	s.window.SetContent(content)
+
+	// Stop any existing refresh timer
+	s.stopAutoRefresh()
+
+	// Start auto-refresh timer (15 seconds)
+	s.startAutoRefresh(func() {
+		s.refreshDashboard(siteList, detailsContainer, logArea, statusIndicator, selectedSiteIndex)
+	})
 }
 
 // refreshDashboard manually refreshes dashboard data
 func (s *AppState) refreshDashboard(siteList *widget.List, detailsContainer *fyne.Container, logArea *widget.Label, statusIndicator *fyne.Container, selectedSiteIndex *int) {
-	// Get updated status
+	// Get updated status (can be done in background)
 	status, err := s.daemonClient.GetStatus()
 	if err != nil {
-		dialog.ShowError(fmt.Errorf("failed to refresh status: %v", err), s.window)
+		fyne.Do(func() {
+			dialog.ShowError(fmt.Errorf("failed to refresh status: %v", err), s.window)
+		})
 		return
 	}
 
-	// Update status indicator
-	newIndicator := createStatusIndicator(strings.ToUpper(string(status.State)))
-	statusIndicator.Objects = newIndicator.Objects
-	statusIndicator.Refresh()
-
-	// Get updated website stats
+	// Get updated website stats (can be done in background)
 	websiteStats, err := s.daemonClient.GetWebsiteStats()
 	if err != nil {
-		dialog.ShowError(fmt.Errorf("failed to refresh website stats: %v", err), s.window)
+		fyne.Do(func() {
+			dialog.ShowError(fmt.Errorf("failed to refresh website stats: %v", err), s.window)
+		})
 		return
 	}
 
-	// Store updated stats for list
-	s.cachedWebsiteStats = websiteStats
+	// Get updated logs (can be done in background)
+	logs, _ := s.daemonClient.GetLogs(50)
+	reverseLogs(logs)
+	logText := strings.Join(logs, "\n")
 
-	// Refresh site list
-	siteList.Refresh()
+	// All UI updates must be done on the main thread
+	fyne.Do(func() {
+		// Update status indicator
+		newIndicator := createStatusIndicator(strings.ToUpper(string(status.State)))
+		statusIndicator.Objects = newIndicator.Objects
+		statusIndicator.Refresh()
 
-	// If a site is selected, update details
-	if selectedSiteIndex != nil && *selectedSiteIndex >= 0 && *selectedSiteIndex < len(s.cachedWebsiteStats) {
-		detailsContainer.Objects = createDetailsPanel(s.cachedWebsiteStats[*selectedSiteIndex]).Objects
-		detailsContainer.Refresh()
-	}
+		// Store updated stats for list
+		s.cachedWebsiteStats = websiteStats
 
-	// Update logs
-	logs, err := s.daemonClient.GetLogs(50)
-	if err == nil {
-		reverseLogs(logs)
-		logText := strings.Join(logs, "\n")
+		// Refresh site list
+		siteList.Refresh()
+
+		// If a site is selected, update details
+		if selectedSiteIndex != nil && *selectedSiteIndex >= 0 && *selectedSiteIndex < len(s.cachedWebsiteStats) {
+			detailsContainer.Objects = createDetailsPanel(s.cachedWebsiteStats[*selectedSiteIndex]).Objects
+			detailsContainer.Refresh()
+		}
+
+		// Update logs
 		logArea.SetText(logText)
 		logArea.Refresh()
-	}
+	})
 }
 
 // createDetailsPanel creates the details panel for a selected site
@@ -303,5 +318,41 @@ func addGridRow(grid *fyne.Container, label, value string) {
 func reverseLogs(logs []string) {
 	for i, j := 0, len(logs)-1; i < j; i, j = i+1, j-1 {
 		logs[i], logs[j] = logs[j], logs[i]
+	}
+}
+
+// startAutoRefresh starts a ticker that calls refreshFunc every 15 seconds
+func (s *AppState) startAutoRefresh(refreshFunc func()) {
+	// Stop any existing ticker first
+	s.stopAutoRefresh()
+
+	// Create new ticker for 15 seconds
+	s.refreshTicker = time.NewTicker(15 * time.Second)
+	s.stopRefresh = make(chan bool)
+
+	// Start goroutine to handle ticks
+	go func() {
+		for {
+			select {
+			case <-s.refreshTicker.C:
+				// Call refresh function on ticker
+				refreshFunc()
+			case <-s.stopRefresh:
+				// Stop signal received
+				return
+			}
+		}
+	}()
+}
+
+// stopAutoRefresh stops the auto-refresh timer
+func (s *AppState) stopAutoRefresh() {
+	if s.refreshTicker != nil {
+		s.refreshTicker.Stop()
+		s.refreshTicker = nil
+	}
+	if s.stopRefresh != nil {
+		close(s.stopRefresh)
+		s.stopRefresh = nil
 	}
 }
