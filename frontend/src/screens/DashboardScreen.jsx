@@ -413,19 +413,14 @@ function DashboardScreen({ error, setError, onNavigate }) {
         )}
 
         {isMonitoringActive && (
-        <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
+        <div className="flex flex-col w-full">
             <div className="bg-white rounded-lg shadow overflow-hidden flex flex-col">
               <div className="p-6 border-b border-gray-200 flex justify-between items-center">
                 <h2 className="text-xl font-bold text-gray-900">
                   Website Monitoring
                 </h2>
                 {isMonitoringActive && (
-                  <button
-                    onClick={handleStopMonitoring}
-                    disabled={isStopping}
-                    className="px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold"
-                  >
+                  <button onClick={handleStopMonitoring} disabled={isStopping} className="px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold">
                     {isStopping ? 'Stopping...' : 'Stop Monitoring'}
                   </button>
                 )}
@@ -526,9 +521,7 @@ function DashboardScreen({ error, setError, onNavigate }) {
                 </div>
               )}
             </div>
-          </div>
-
-          <div>
+      
             <div className="bg-white rounded-lg shadow h-full max-h-96 overflow-hidden flex flex-col">
               <div className="p-6 border-b border-gray-200 flex justify-between items-center">
                 <h2 className="text-xl font-bold text-gray-900">Activity Log</h2>
@@ -579,7 +572,6 @@ function DashboardScreen({ error, setError, onNavigate }) {
                 )}
               </div>
             </div>
-          </div>
         </div>
         )}
       </div>
