@@ -195,13 +195,14 @@ func (c *Client) ClearLogs() error {
 }
 
 // SetSMTP sends SMTP configuration to the daemon
-func (c *Client) SetSMTP(host, port, username, password, from string) error {
+func (c *Client) SetSMTP(host, port, username, password, from, to string) error {
 	payload := SetSMTPPayload{
 		Host:     host,
 		Port:     port,
 		Username: username,
 		Password: password,
 		From:     from,
+		To:       to,
 	}
 
 	payloadJSON, err := json.Marshal(payload)

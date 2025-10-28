@@ -1,12 +1,12 @@
 package snapshot
 
 import (
+	"apiwatcher/internal/config"
 	"bufio"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
-	"url-checker/internal/config"
 )
 
 // ==========================

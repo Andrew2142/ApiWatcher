@@ -1,6 +1,7 @@
 package main
 
 import (
+	"apiwatcher/internal/daemon"
 	"flag"
 	"fmt"
 	"log"
@@ -8,7 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
-	"url-checker/internal/daemon"
+	"time"
 )
 
 const (
@@ -60,9 +61,19 @@ func main() {
 		if err := d.Stop(); err != nil {
 			log.Printf("Error stopping monitoring: %v", err)
 		}
+		// Wait a moment for monitoring to clean up
+		log.Println("Waiting for monitoring workers to finish...")
+		// Give workers up to 5 seconds to finish
+		for i := 0; i < 50; i++ {
+			if d.GetState() == daemon.StateStopped {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 
 	// Stop server
+	log.Println("Stopping server...")
 	server.Stop()
 
 	log.Println("Daemon stopped")

@@ -48,4 +48,3 @@ func SaveLog(logData Log) error {
 	}
 	return os.WriteFile(path, data, 0644)
 }
-

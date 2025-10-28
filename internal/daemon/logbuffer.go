@@ -31,7 +31,7 @@ func (lb *LogBuffer) Add(line string) {
 	if len(lb.lines) > lb.maxLines {
 		lb.lines = lb.lines[len(lb.lines)-lb.maxLines:]
 	}
-	
+
 	// Also print to stdout so it gets captured in log files
 	fmt.Println(line)
 }
@@ -67,4 +67,3 @@ func (lb *LogBuffer) Clear() {
 	defer lb.mutex.Unlock()
 	lb.lines = make([]string, 0, lb.maxLines)
 }
-

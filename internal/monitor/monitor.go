@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"url-checker/internal/config"
-	"url-checker/internal/models"
+	"apiwatcher/internal/config"
+	"apiwatcher/internal/models"
 
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
@@ -20,7 +20,7 @@ func CheckWebsite(parentCtx context.Context, url string) ([]*models.APIRequest, 
 	if parentCtx == nil {
 		parentCtx = context.Background()
 	}
-	
+
 	// Create chromedp context from parent context so it can be cancelled
 	ctx, cancel := chromedp.NewContext(parentCtx)
 	defer cancel()

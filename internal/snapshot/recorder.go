@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"apiwatcher/internal/models"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -10,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"url-checker/internal/models"
 
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/runtime"
@@ -82,11 +82,6 @@ func RecordWithCallback(targetURL string, snapshotName string, stopChan chan boo
 		}
 	})
 
-	// Start the browser and navigate
-	if err := chromedp.Run(ctx); err != nil {
-		log.Println("[RECORDER] warning starting chromedp:", err)
-	}
-
 	// Enable necessary CDP domains and set up event tracking
 	err := chromedp.Run(ctx,
 		// Enable CDP domains
@@ -108,7 +103,8 @@ func RecordWithCallback(targetURL string, snapshotName string, stopChan chan boo
 		}),
 		// Navigate to target URL
 		chromedp.Navigate(targetURL),
-		chromedp.Sleep(800*time.Millisecond),
+		// Wait for page to be interactive instead of arbitrary sleep
+		chromedp.WaitReady("body", chromedp.ByQuery),
 		// Set up minimal event listeners that use the binding
 		// Note: Some JS is unavoidable for recording user interactions as CDP
 		// doesn't expose DOM-level click/input events. Using runtime.AddBinding
@@ -200,6 +196,11 @@ func RecordWithCallback(targetURL string, snapshotName string, stopChan chan boo
 		Actions:   actions,
 		CreatedAt: time.Now(),
 	}
+
+	// Save snapshot to disk
+	if err := SaveToDisk(s); err != nil {
+		return nil, fmt.Errorf("failed to save snapshot: %w", err)
+	}
+
 	return s, nil
 }
-

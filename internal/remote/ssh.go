@@ -25,13 +25,13 @@ func (c *SSHConnection) Config() *SSHConfig {
 
 // SSHConfig holds SSH connection configuration
 type SSHConfig struct {
-	Host            string
-	Port            string
-	Username        string
-	AuthMethod      string // "password", "key", or "agent"
-	Password        string
-	KeyPath         string
-	DaemonPort      string
+	Host       string
+	Port       string
+	Username   string
+	AuthMethod string // "password", "key", or "agent"
+	Password   string
+	KeyPath    string
+	DaemonPort string
 }
 
 // Connect establishes an SSH connection
@@ -236,11 +236,10 @@ func (c *SSHConnection) UploadFile(localPath, remotePath string) error {
 	// Upload using base64 encoded data and decode on server
 	// This is more reliable than SCP protocol
 	cmd := fmt.Sprintf("echo '%s' | base64 -d > %s", encoded, remotePath)
-	
+
 	if err := session.Run(cmd); err != nil {
 		return fmt.Errorf("upload command failed: %w", err)
 	}
 
 	return nil
 }
-

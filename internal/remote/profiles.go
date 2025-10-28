@@ -9,9 +9,9 @@ import (
 
 // ServerProfile represents a saved server configuration
 type ServerProfile struct {
-	Name       string     `json:"name"`
-	Config     *SSHConfig `json:"config"`
-	LastUsed   string     `json:"last_used"`
+	Name     string     `json:"name"`
+	Config   *SSHConfig `json:"config"`
+	LastUsed string     `json:"last_used"`
 }
 
 // GetProfilesDir returns the directory where profiles are stored
@@ -116,4 +116,3 @@ func DeleteProfile(name string) error {
 
 	return nil
 }
-

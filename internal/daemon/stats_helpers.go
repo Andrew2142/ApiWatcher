@@ -21,7 +21,7 @@ func (d *Daemon) UpdateWebsiteStats(url string, success bool, duration time.Dura
 		Duration:  duration,
 	}
 	stats.CheckHistory = append(stats.CheckHistory, checkRecord)
-	
+
 	// Keep only last 7 days of history (assuming ~5 min intervals = ~2000 checks)
 	if len(stats.CheckHistory) > 2000 {
 		stats.CheckHistory = stats.CheckHistory[len(stats.CheckHistory)-2000:]
@@ -185,8 +185,3 @@ func (ws *WebsiteStats) GetCurrentStatus() string {
 	}
 	return "Unknown"
 }
-
-
-
-
-

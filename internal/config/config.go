@@ -21,12 +21,10 @@ var WorkerSleepTime int
 var SMTPFrom, SMTPUser, SMTPPass, SMTPHost, SMTPPort string
 
 func init() {
-	// Load .env file
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, please make one from example.env")
-	}
+	// Load .env file (optional - SMTP is configured via frontend)
+	_ = godotenv.Load()
 
-	// Load environment variables
+	// Load environment variables (if set)
 	SMTPFrom = os.Getenv("SMTP_FROM")
 	SMTPUser = os.Getenv("SMTP_USER")
 	SMTPPass = os.Getenv("SMTP_PASS")
@@ -178,6 +176,13 @@ func LoadAllSavedConfigs() ([]*SavedMonitorConfig, error) {
 		results = append(results, &config)
 	}
 	return results, nil
+}
+
+// DeleteMonitorConfig deletes a saved configuration by name
+func DeleteMonitorConfig(name string) error {
+	dir := savedConfigsPath()
+	filename := filepath.Join(dir, sanitizeFilename(name)+".json")
+	return os.Remove(filename)
 }
 
 // sanitizeFilename makes a string safe for use as a filename

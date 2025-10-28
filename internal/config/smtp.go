@@ -15,6 +15,7 @@ type SMTPConfig struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	From     string `json:"from"`
+	To       string `json:"to"` // Email address to send alerts to
 }
 
 // GetSMTPConfigPath returns the path to SMTP configuration file
@@ -164,6 +165,15 @@ func ValidateSMTPConfig(config *SMTPConfig) error {
 		return fmt.Errorf("invalid from email address")
 	}
 
+	if strings.TrimSpace(config.To) == "" {
+		return fmt.Errorf("alert email address is required")
+	}
+
+	// Basic email format validation for 'to' field
+	if !strings.Contains(config.To, "@") {
+		return fmt.Errorf("invalid alert email address")
+	}
+
 	return nil
 }
 
@@ -182,5 +192,3 @@ func LoadOrCreateDefaultSMTPConfig() *SMTPConfig {
 	}
 	return config
 }
-
-

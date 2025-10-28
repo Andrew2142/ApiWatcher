@@ -1,9 +1,9 @@
 package email
 
 import (
+	"apiwatcher/internal/config"
 	"fmt"
 	"net/smtp"
-	"url-checker/internal/config"
 )
 
 // ==========================

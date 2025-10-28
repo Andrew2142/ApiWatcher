@@ -28,11 +28,11 @@ type APIRequest struct {
 }
 
 type SnapshotAction struct {
-	Type      string `json:"type"`                
-	Selector  string `json:"selector,omitempty"`  
-	Value     string `json:"value,omitempty"`     
-	Timestamp int64  `json:"timestamp,omitempty"` 
-	URL       string `json:"url,omitempty"`      
+	Type      string `json:"type"`
+	Selector  string `json:"selector,omitempty"`
+	Value     string `json:"value,omitempty"`
+	Timestamp int64  `json:"timestamp,omitempty"`
+	URL       string `json:"url,omitempty"`
 }
 
 func (u *URLCheck) Check() {
@@ -65,4 +65,3 @@ func NewAPIRequest(url, method string, status int, reqHeaders, respHeaders map[s
 		Timestamp:   time.Now(),
 	}
 }
-

@@ -1,11 +1,11 @@
 package daemon
 
 import (
+	"apiwatcher/internal/config"
+	"apiwatcher/internal/snapshot"
 	"encoding/json"
 	"fmt"
 	"time"
-	"url-checker/internal/config"
-	"url-checker/internal/snapshot"
 )
 
 // Command represents a command sent to the daemon
@@ -59,6 +59,7 @@ type SetSMTPPayload struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	From     string `json:"from"`
+	To       string `json:"to"` // Email address to send alerts to
 }
 
 // StatusData is the response data for STATUS command
@@ -73,27 +74,27 @@ type StatusData struct {
 
 // WebsiteStatsResponse is the response data for individual website stats
 type WebsiteStatsResponse struct {
-	URL                   string  `json:"url"`
-	TotalChecks           int     `json:"total_checks"`
-	FailedChecks          int     `json:"failed_checks"`
-	ConsecutiveFailures   int     `json:"consecutive_failures"`
-	ConsecutiveSuccesses  int     `json:"consecutive_successes"`
-	EmailsSent            int     `json:"emails_sent"`
-	LastCheckTime         string  `json:"last_check_time"`
-	LastFailureTime       string  `json:"last_failure_time"`
-	LastSuccessTime       string  `json:"last_success_time"`
-	FirstMonitoredAt      string  `json:"first_monitored_at"`
-	AverageResponseTime   string  `json:"average_response_time"`
-	UptimeLastHour        float64 `json:"uptime_last_hour"`
-	UptimeLast24Hours     float64 `json:"uptime_last_24_hours"`
-	UptimeLast7Days       float64 `json:"uptime_last_7_days"`
-	OverallHealthPercent  float64 `json:"overall_health_percent"`
-	LastDowntimeDuration  string  `json:"last_downtime_duration"`
-	LongestDowntime       string  `json:"longest_downtime"`
-	TotalDowntime         string  `json:"total_downtime"`
-	LastAlertSent         string  `json:"last_alert_sent"`
-	HealthTrend           string  `json:"health_trend"`
-	CurrentStatus         string  `json:"current_status"`
+	URL                  string  `json:"url"`
+	TotalChecks          int     `json:"total_checks"`
+	FailedChecks         int     `json:"failed_checks"`
+	ConsecutiveFailures  int     `json:"consecutive_failures"`
+	ConsecutiveSuccesses int     `json:"consecutive_successes"`
+	EmailsSent           int     `json:"emails_sent"`
+	LastCheckTime        string  `json:"last_check_time"`
+	LastFailureTime      string  `json:"last_failure_time"`
+	LastSuccessTime      string  `json:"last_success_time"`
+	FirstMonitoredAt     string  `json:"first_monitored_at"`
+	AverageResponseTime  string  `json:"average_response_time"`
+	UptimeLastHour       float64 `json:"uptime_last_hour"`
+	UptimeLast24Hours    float64 `json:"uptime_last_24_hours"`
+	UptimeLast7Days      float64 `json:"uptime_last_7_days"`
+	OverallHealthPercent float64 `json:"overall_health_percent"`
+	LastDowntimeDuration string  `json:"last_downtime_duration"`
+	LongestDowntime      string  `json:"longest_downtime"`
+	TotalDowntime        string  `json:"total_downtime"`
+	LastAlertSent        string  `json:"last_alert_sent"`
+	HealthTrend          string  `json:"health_trend"`
+	CurrentStatus        string  `json:"current_status"`
 }
 
 // HandleCommand processes a command and returns a response
@@ -215,16 +216,21 @@ func (d *Daemon) handleSetConfig(payload json.RawMessage) Response {
 		Websites: configPayload.Websites,
 	}
 
-	// Load snapshots if provided
-	snapshots := make(map[string]*snapshot.Snapshot)
-	for url, snapshotID := range configPayload.SnapshotIDs {
-		if snapshotID != "" {
-			snap, err := snapshot.LoadByID(snapshotID)
-			if err != nil {
-				d.Logf("[WARNING] Failed to load snapshot %s for %s: %v", snapshotID, url, err)
-			} else {
-				snapshots[url] = snap
-				d.Logf("[CONFIG] Loaded snapshot %s for %s (%d actions)", snapshotID, url, len(snap.Actions))
+	// Load ALL snapshots for each configured website
+	snapshots := make(map[string][]*snapshot.Snapshot)
+	snapshotCount := 0
+	for _, url := range configPayload.Websites {
+		// Load ALL snapshots for this URL from disk
+		snaps, err := snapshot.LoadForURL(url)
+		if err != nil {
+			d.Logf("[WARNING] Failed to load snapshots for %s: %v", url, err)
+			continue
+		}
+		if snaps != nil && len(snaps) > 0 {
+			snapshots[url] = snaps
+			snapshotCount += len(snaps)
+			for _, snap := range snaps {
+				d.Logf("[CONFIG] Loaded snapshot %s for %s (%d actions)", snap.ID, url, len(snap.Actions))
 			}
 		}
 	}
@@ -233,7 +239,7 @@ func (d *Daemon) handleSetConfig(payload json.RawMessage) Response {
 		return Response{Success: false, Message: err.Error()}
 	}
 
-	d.Logf("[CONFIG] Configuration updated: %d websites, %d snapshots", len(cfg.Websites), len(snapshots))
+	d.Logf("[CONFIG] Configuration updated: %d websites, %d snapshots", len(cfg.Websites), snapshotCount)
 	return Response{Success: true, Message: "configuration updated"}
 }
 
@@ -271,7 +277,7 @@ func (d *Daemon) handleGetStats() Response {
 
 func (d *Daemon) handleGetWebsiteStats() Response {
 	websiteStats := d.GetAllWebsiteStats()
-	
+
 	// Convert to response format with formatted strings
 	responses := make([]WebsiteStatsResponse, 0, len(websiteStats))
 	for _, stats := range websiteStats {
@@ -300,7 +306,7 @@ func (d *Daemon) handleGetWebsiteStats() Response {
 		}
 		responses = append(responses, response)
 	}
-	
+
 	return Response{Success: true, Data: responses}
 }
 
@@ -324,6 +330,7 @@ func (d *Daemon) handleSetSMTP(payload json.RawMessage) Response {
 		Username: smtpPayload.Username,
 		Password: smtpPayload.Password,
 		From:     smtpPayload.From,
+		To:       smtpPayload.To,
 	}
 
 	// Validate
@@ -356,6 +363,7 @@ func (d *Daemon) handleGetSMTP() Response {
 		"port":     smtpConfig.Port,
 		"username": smtpConfig.Username,
 		"from":     smtpConfig.From,
+		"to":       smtpConfig.To,
 	}
 
 	return Response{Success: true, Data: response}

@@ -123,4 +123,3 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	log.Printf("Client disconnected: %s", conn.RemoteAddr())
 }
-

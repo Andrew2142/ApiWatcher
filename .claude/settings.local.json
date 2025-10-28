@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "WebFetch(domain:pkg.go.dev)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

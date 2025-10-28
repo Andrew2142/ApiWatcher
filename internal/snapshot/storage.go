@@ -94,17 +94,23 @@ func LoadAll() ([]*Snapshot, error) {
 func LoadByID(id string) (*Snapshot, error) {
 	dir := dirPath()
 	filename := filepath.Join(dir, id+".json")
-	
+
 	raw, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var s Snapshot
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return nil, err
 	}
-	
+
 	return &s, nil
 }
 
+// DeleteFromDisk deletes a snapshot file by its ID
+func DeleteFromDisk(id string) error {
+	dir := dirPath()
+	filename := filepath.Join(dir, id+".json")
+	return os.Remove(filename)
+}

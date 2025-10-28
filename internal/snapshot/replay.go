@@ -1,20 +1,49 @@
 package snapshot
 
 import (
+	"apiwatcher/internal/config"
+	"apiwatcher/internal/models"
 	"context"
 	"fmt"
 	"log"
 	"time"
-	"url-checker/internal/config"
-	"url-checker/internal/models"
 
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 )
 
-// Replay runs a saved snapshot in Chrome.
-// It respects ShowWorkerBrowser: if true, opens a visible Chrome window.
+// ReplayResult holds the result of a snapshot replay including any API errors detected
+type ReplayResult struct {
+	SnapshotID string           // The snapshot ID
+	Success    bool             // Whether replay completed without errors
+	APIErrors  []*APIErrorInfo  // List of API errors detected during replay
+	Duration   time.Duration    // Time taken to complete replay
+}
+
+// APIErrorInfo holds information about a detected API error
+type APIErrorInfo struct {
+	URL        string    // The API URL that returned an error
+	StatusCode int       // HTTP status code
+	Timestamp  time.Time // When the error was detected
+}
+
+// Replay runs a saved snapshot in Chrome and returns an error (backward compatible).
+// For detailed error information, use ReplayWithResult instead.
 func Replay(s *Snapshot) error {
+	_, err := ReplayWithResult(s)
+	return err
+}
+
+// ReplayWithResult runs a saved snapshot in Chrome and returns detailed result information
+// including any API errors detected during the replay.
+func ReplayWithResult(s *Snapshot) (*ReplayResult, error) {
+	startTime := time.Now()
+	result := &ReplayResult{
+		SnapshotID: s.ID,
+		Success:    true,
+		APIErrors:  make([]*APIErrorInfo, 0),
+	}
+
 	// Chrome allocator options
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", false),
@@ -30,14 +59,17 @@ func Replay(s *Snapshot) error {
 	defer cancelCtx()
 
 	// Listen for network responses to catch API errors
-	var apiErrorCount int
 	chromedp.ListenTarget(ctx, func(ev any) {
 		if ev, ok := ev.(*network.EventResponseReceived); ok {
 			if ev.Response.Status >= 400 {
 				apiURL := ev.Response.URL
 				if !config.IsStaticAsset(apiURL) {
-					apiErrorCount++
-					log.Printf("[SNAPSHOT] 🚨 API Error #%d detected: %d %s\n", apiErrorCount, int(ev.Response.Status), ev.Response.URL)
+					result.APIErrors = append(result.APIErrors, &APIErrorInfo{
+						URL:        apiURL,
+						StatusCode: int(ev.Response.Status),
+						Timestamp:  time.Now(),
+					})
+					log.Printf("[SNAPSHOT] 🚨 API Error #%d detected: %d %s\n", len(result.APIErrors), int(ev.Response.Status), apiURL)
 				}
 			}
 		}
@@ -56,7 +88,8 @@ func Replay(s *Snapshot) error {
 		chromedp.Sleep(5000*time.Millisecond),
 	); err != nil {
 		log.Printf("[SNAPSHOT] ❌ Initial navigation failed: %v\n", err)
-		return fmt.Errorf("initial navigation failed: %w", err)
+		result.Duration = time.Since(startTime)
+		return result, fmt.Errorf("initial navigation failed: %w", err)
 	}
 	log.Printf("[SNAPSHOT] ✅ Initial page loaded successfully\n")
 
@@ -88,7 +121,9 @@ func Replay(s *Snapshot) error {
 			if a.Selector != "" {
 				log.Printf("[SNAPSHOT] 🖱️  Action %d/%d: Click on '%s'\n", i+1, len(filteredActions), a.Selector)
 				if err := chromedp.Run(runCtx,
-					chromedp.Click(a.Selector, chromedp.NodeVisible),
+					chromedp.WaitVisible(a.Selector, chromedp.ByQuery),
+					chromedp.ScrollIntoView(a.Selector, chromedp.ByQuery),
+					chromedp.Click(a.Selector, chromedp.ByQuery),
 				); err != nil {
 					log.Printf("[SNAPSHOT] ❌ Click failed on action %d: %v\n", i+1, err)
 				} else {
@@ -99,9 +134,10 @@ func Replay(s *Snapshot) error {
 			if a.Selector != "" {
 				log.Printf("[SNAPSHOT] ⌨️  Action %d/%d: Input text into '%s'\n", i+1, len(filteredActions), a.Selector)
 				if err := chromedp.Run(runCtx,
-					chromedp.Click(a.Selector, chromedp.NodeVisible),
-					chromedp.Sleep(150*time.Millisecond),
-					chromedp.SendKeys(a.Selector, a.Value, chromedp.NodeVisible),
+					chromedp.WaitVisible(a.Selector, chromedp.ByQuery),
+					chromedp.ScrollIntoView(a.Selector, chromedp.ByQuery),
+					chromedp.Focus(a.Selector, chromedp.ByQuery),
+					chromedp.SendKeys(a.Selector, a.Value, chromedp.ByQuery),
 				); err != nil {
 					log.Printf("[SNAPSHOT] ❌ Input failed on action %d: %v\n", i+1, err)
 				} else {
@@ -116,12 +152,16 @@ func Replay(s *Snapshot) error {
 		_ = chromedp.Run(runCtx, chromedp.Sleep(500*time.Millisecond))
 	}
 
-	if apiErrorCount > 0 {
-		log.Printf("[SNAPSHOT] ⚠️  Replay completed for %s (ID: %s) with %d API errors detected\n", s.URL, s.ID, apiErrorCount)
+	// Set duration and success flag
+	result.Duration = time.Since(startTime)
+	if len(result.APIErrors) > 0 {
+		result.Success = false
+		log.Printf("[SNAPSHOT] ⚠️  Replay completed for %s (ID: %s) with %d API errors detected\n", s.URL, s.ID, len(result.APIErrors))
 	} else {
+		result.Success = true
 		log.Printf("[SNAPSHOT] 🎉 Replay completed successfully for %s (ID: %s) with no API errors\n", s.URL, s.ID)
 	}
-	return nil
+	return result, nil
 }
 
 // PreprocessActions filters out intermediate input events

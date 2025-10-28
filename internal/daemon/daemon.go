@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"url-checker/internal/config"
-	"url-checker/internal/monitor"
-	"url-checker/internal/snapshot"
+	"apiwatcher/internal/config"
+	"apiwatcher/internal/monitor"
+	"apiwatcher/internal/snapshot"
 )
 
 // State represents the current state of the daemon
@@ -29,7 +29,7 @@ const (
 type Daemon struct {
 	state             State
 	config            *config.Config
-	snapshotsByURL    map[string]*snapshot.Snapshot
+	snapshotsByURL    map[string][]*snapshot.Snapshot // Multiple snapshots per URL
 	jobQueue          chan monitor.Job
 	stopChan          chan bool
 	mutex             sync.RWMutex
@@ -135,7 +135,7 @@ func New(dataDir string) (*Daemon, error) {
 
 	d := &Daemon{
 		state:          StateStopped,
-		snapshotsByURL: make(map[string]*snapshot.Snapshot),
+		snapshotsByURL: make(map[string][]*snapshot.Snapshot),
 		stopChan:       make(chan bool),
 		logBuffer:      NewLogBuffer(1000),
 		stats:          &Stats{},
@@ -216,7 +216,7 @@ func (d *Daemon) GetAllWebsiteStats() map[string]*WebsiteStats {
 	return result
 }
 
-func (d *Daemon) SetConfig(cfg *config.Config, snapshots map[string]*snapshot.Snapshot) error {
+func (d *Daemon) SetConfig(cfg *config.Config, snapshots map[string][]*snapshot.Snapshot) error {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -243,9 +243,10 @@ func (d *Daemon) saveState() error {
 	statePath := filepath.Join(d.dataDir, "daemon-state.json")
 
 	snapshotIDs := make(map[string]string)
-	for url, snap := range d.snapshotsByURL {
-		if snap != nil {
-			snapshotIDs[url] = snap.ID
+	for url, snaps := range d.snapshotsByURL {
+		// Save the first snapshot ID (for backwards compatibility)
+		if len(snaps) > 0 && snaps[0] != nil {
+			snapshotIDs[url] = snaps[0].ID
 		}
 	}
 
@@ -301,10 +302,13 @@ func (d *Daemon) loadState() error {
 		d.websiteStats.mutex.Unlock()
 	}
 
-	if state.SnapshotIDs != nil {
-		for url, snapshotID := range state.SnapshotIDs {
-			snap, _ := snapshot.LoadByID(snapshotID)
-			d.snapshotsByURL[url] = snap
+	// Load ALL snapshots for configured URLs
+	if d.config != nil && d.config.Websites != nil {
+		for _, url := range d.config.Websites {
+			snaps, _ := snapshot.LoadForURL(url)
+			if snaps != nil && len(snaps) > 0 {
+				d.snapshotsByURL[url] = snaps
+			}
 		}
 	}
 
@@ -316,14 +320,17 @@ func (d *Daemon) loadState() error {
 }
 
 func (d *Daemon) Logf(format string, args ...interface{}) {
+	// Add timestamp to all log messages
+	timestamp := time.Now().Format("2006/01/02 15:04:05")
 	msg := fmt.Sprintf(format, args...)
-	log.Println(msg)
-	d.logBuffer.Add(msg)
+	logWithTimestamp := fmt.Sprintf("[%s] %s", timestamp, msg)
+	log.Println(logWithTimestamp)
+	d.logBuffer.Add(logWithTimestamp)
 }
 
 func (d *Daemon) Start() error {
 	d.mutex.Lock()
-	
+
 	if d.state == StateRunning {
 		d.mutex.Unlock()
 		return fmt.Errorf("monitoring is already running")
@@ -339,7 +346,7 @@ func (d *Daemon) Start() error {
 		d.Logf("Waiting for previous monitoring session to finish...")
 		stoppedChan := d.monitoringStopped
 		d.mutex.Unlock()
-		
+
 		// Wait with timeout
 		select {
 		case <-stoppedChan:
@@ -347,14 +354,14 @@ func (d *Daemon) Start() error {
 		case <-time.After(10 * time.Second):
 			d.Logf("Timeout waiting for previous session - proceeding anyway")
 		}
-		
+
 		d.mutex.Lock()
 	}
 
 	// Create fresh channels and context for this monitoring session
 	d.stopChan = make(chan bool)
 	d.monitoringStopped = make(chan bool)
-	
+
 	// Create cancellable context for instant worker abort
 	ctx, cancel := context.WithCancel(context.Background())
 	d.cancelCtx = cancel
@@ -364,7 +371,7 @@ func (d *Daemon) Start() error {
 	d.stats.StartedAt = time.Now()
 
 	d.mutex.Unlock()
-	
+
 	_ = d.saveState()
 	go d.runMonitoring(ctx)
 	return nil
@@ -372,7 +379,7 @@ func (d *Daemon) Start() error {
 
 func (d *Daemon) Stop() error {
 	d.mutex.Lock()
-	
+
 	if d.state != StateRunning && d.state != StatePaused {
 		d.mutex.Unlock()
 		return fmt.Errorf("monitoring is not running")
@@ -392,15 +399,15 @@ func (d *Daemon) Stop() error {
 	default:
 		close(d.stopChan)
 	}
-	
+
 	d.mutex.Unlock()
 
 	// Return immediately - let monitoring clean up in background
 	d.Logf("Stop signal sent - workers aborting instantly")
-	
+
 	// Save state asynchronously
 	go d.saveState()
-	
+
 	return nil
 }
 
@@ -428,7 +435,7 @@ func (d *Daemon) Resume() error {
 
 	d.state = StateRunning
 	d.monitoringActive = true
-	
+
 	// Create context for this session
 	ctx, cancel := context.WithCancel(context.Background())
 	d.cancelCtx = cancel
@@ -449,7 +456,7 @@ func (d *Daemon) runMonitoring(ctx context.Context) {
 		}
 		d.mutex.Unlock()
 	}()
-	
+
 	const numWorkers = 30
 	d.jobQueue = make(chan monitor.Job, 100)
 
@@ -463,7 +470,6 @@ func (d *Daemon) runMonitoring(ctx context.Context) {
 		case <-d.stopChan:
 			d.Logf("Stop signal received, shutting down monitoring loop")
 			close(d.jobQueue)
-			// Don't wait for workers - context cancellation aborts them instantly
 			return
 		case <-ctx.Done():
 			d.Logf("Context cancelled, shutting down monitoring loop")
@@ -472,15 +478,17 @@ func (d *Daemon) runMonitoring(ctx context.Context) {
 		default:
 		}
 
-		jobCount := len(d.config.Websites)
-		d.Logf("Queueing %d jobs", jobCount)
-		d.jobWaitGroup.Add(jobCount)
+		// ============ PHASE 1: API Checks (Parallel with 30 workers) ============
+		websiteCount := len(d.config.Websites)
+		d.Logf("[PHASE 1] Queueing %d API check jobs", websiteCount)
+		d.jobWaitGroup.Add(websiteCount)
 
 		for _, site := range d.config.Websites {
+			// Use legacy Job structure for compatibility with existing worker
 			job := monitor.Job{
 				Website:  site,
 				Email:    d.config.Email,
-				Snapshot: d.snapshotsByURL[site],
+				Snapshot: nil, // No snapshots in Phase 1
 			}
 
 			select {
@@ -491,13 +499,36 @@ func (d *Daemon) runMonitoring(ctx context.Context) {
 			}
 		}
 
+		// Wait for all API checks to complete
 		d.jobWaitGroup.Wait()
+		d.Logf("[PHASE 1] All API checks completed")
 
 		d.stats.mutex.Lock()
 		d.stats.LastCheckTime = time.Now()
 		d.stats.mutex.Unlock()
 
-		sleepTime := time.Duration(config.WorkerSleepTime) * time.Minute
+		// ============ PHASE 2: Snapshots (Sequential - one at a time) ============
+		d.Logf("[PHASE 2] Starting snapshot replay phase")
+		for _, site := range d.config.Websites {
+			// Check if snapshots exist for this website
+			snapshotList := d.snapshotsByURL[site]
+			if snapshotList == nil || len(snapshotList) == 0 {
+				continue
+			}
+
+			// Run snapshots sequentially (one at a time to avoid RAM issues)
+			snapJob := monitor.SnapshotJob{
+				Website:   site,
+				Email:     d.config.Email,
+				Snapshots: snapshotList,
+			}
+			monitor.ProcessSnapshots(snapJob, d)
+		}
+		d.Logf("[PHASE 2] Snapshot replay phase completed")
+
+		// Reload settings on each cycle to pick up any changes
+		_ = config.LoadSettings()
+		sleepTime := time.Duration(config.GetWorkerSleepTime()) * time.Minute
 		d.Logf("Sleeping for %v", sleepTime)
 
 		select {
@@ -505,7 +536,6 @@ func (d *Daemon) runMonitoring(ctx context.Context) {
 		case <-d.stopChan:
 			d.Logf("Stop signal received, shutting down monitoring loop")
 			close(d.jobQueue)
-			// Don't wait for workers - context cancellation aborts them instantly
 			return
 		case <-ctx.Done():
 			d.Logf("Context cancelled, shutting down monitoring loop")
@@ -535,31 +565,31 @@ func (d *Daemon) worker(ctx context.Context, id int) {
 		default:
 		}
 
-	// Check monitoringActive flag
-	if !d.monitoringActive {
-		d.Logf("[Worker %d] Monitoring inactive, skipping job", id)
-		d.jobWaitGroup.Done()
-		continue
-	}
+		// Check monitoringActive flag
+		if !d.monitoringActive {
+			d.Logf("[Worker %d] Monitoring inactive, skipping job", id)
+			d.jobWaitGroup.Done()
+			continue
+		}
 
-	d.stats.mutex.Lock()
-	d.stats.TotalChecks++
-	d.stats.mutex.Unlock()
-
-	// Pass context to ProcessJob so it can abort mid-operation
-	result := monitor.ProcessJob(ctx, id, job, d)
-
-	// Update global stats
-	if !result.Success {
 		d.stats.mutex.Lock()
-		d.stats.FailedChecks++
+		d.stats.TotalChecks++
 		d.stats.mutex.Unlock()
-	}
 
-	// Update per-website stats
-	d.UpdateWebsiteStats(job.Website, result.Success, result.Duration, result.AlertSent)
+		// Pass context to ProcessJob so it can abort mid-operation
+		result := monitor.ProcessJob(ctx, id, job, d)
 
-	d.jobWaitGroup.Done()
+		// Update global stats
+		if !result.Success {
+			d.stats.mutex.Lock()
+			d.stats.FailedChecks++
+			d.stats.mutex.Unlock()
+		}
+
+		// Update per-website stats
+		d.UpdateWebsiteStats(job.Website, result.Success, result.Duration, result.AlertSent)
+
+		d.jobWaitGroup.Done()
 	}
 
 	d.Logf("[Worker %d] Job queue closed, exiting", id)

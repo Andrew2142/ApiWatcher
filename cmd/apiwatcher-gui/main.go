@@ -1,13 +1,11 @@
 package main
 
 import (
+	"apiwatcher/internal/gui"
 	"log"
-	"url-checker/internal/gui"
 )
 
 func main() {
 	log.Println("Starting API Watcher GUI...")
 	gui.Run()
 }
-
-
