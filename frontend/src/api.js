@@ -9,6 +9,8 @@ export const api = {
   getConnectionStatus: () => window.backend.App.GetConnectionStatus(),
   disconnectFromServer: () => window.backend.App.DisconnectFromServer(),
   checkDaemonStatus: (host, username, password) => window.backend.App.CheckDaemonStatus(host, username, password),
+  deployDaemonToServer: (host, username, password) => window.backend.App.DeployDaemonToServer(host, username, password),
+  getConnectionHealth: () => window.backend.App.GetConnectionHealth(),
 
   // Dashboard & Monitoring
   getDashboardData: () => window.backend.App.GetDashboardData(),

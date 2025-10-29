@@ -413,7 +413,7 @@ function DashboardScreen({ error, setError, onNavigate }) {
         )}
 
         {isMonitoringActive && (
-        <div className="flex flex-col w-full">
+        <div className="flex flex-col w-full space-y-12">
             <div className="bg-white rounded-lg shadow overflow-hidden flex flex-col">
               <div className="p-6 border-b border-gray-200 flex justify-between items-center">
                 <h2 className="text-xl font-bold text-gray-900">

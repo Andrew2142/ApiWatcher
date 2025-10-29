@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCheck, faTimes } from '@fortawesome/free-solid-svg-icons'
+import { faCheck, faTimes, faCircle } from '@fortawesome/free-solid-svg-icons'
 import api from '../api'
 
 function ConnectionScreen({ onConnect, loading, error }) {
@@ -20,6 +20,9 @@ function ConnectionScreen({ onConnect, loading, error }) {
   const [testSuccess, setTestSuccess] = useState(null)
   const [passwordPrompt, setPasswordPrompt] = useState('')
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
+  const [deploymentStatus, setDeploymentStatus] = useState(null)
+  const [daemonCheckInProgress, setDaemonCheckInProgress] = useState(false)
+  const [pendingConnection, setPendingConnection] = useState(null)
 
   useEffect(() => {
     loadProfiles()
@@ -66,11 +69,11 @@ function ConnectionScreen({ onConnect, loading, error }) {
   const handlePasswordConfirm = () => {
     if (!selectedProfile) return
     setShowPasswordDialog(false)
-    onConnect('ssh', {
-      host: selectedProfile.host,
-      username: selectedProfile.username,
-      password: passwordPrompt,
-    })
+    handleConnectionAttempt(
+      selectedProfile.host,
+      selectedProfile.username,
+      passwordPrompt
+    )
     setPasswordPrompt('')
   }
 
@@ -79,11 +82,11 @@ function ConnectionScreen({ onConnect, loading, error }) {
       alert('Please fill in all fields')
       return
     }
-    onConnect('ssh', {
-      host: newServer.host,
-      username: newServer.username,
-      password: newServer.password,
-    })
+    handleConnectionAttempt(
+      newServer.host,
+      newServer.username,
+      newServer.password
+    )
   }
 
   const handleLocalConnect = () => {
@@ -117,6 +120,99 @@ function ConnectionScreen({ onConnect, loading, error }) {
     }
   }
 
+  const handleConnectionAttempt = async (host, username, password) => {
+    setPendingConnection({ host, username, password })
+    setDaemonCheckInProgress(true)
+
+    try {
+      // Check daemon status
+      const status = await api.checkDaemonStatus(host, username, password)
+
+      if (status.error) {
+        // If there's an SSH error, just connect - error handling will happen at the connection level
+        onConnect('ssh', { host, username, password })
+        setPendingConnection(null)
+        setDaemonCheckInProgress(false)
+      } else if (status.daemon_running) {
+        // Daemon is running, proceed to connect
+        onConnect('ssh', { host, username, password })
+        setPendingConnection(null)
+        setDaemonCheckInProgress(false)
+      } else if (status.daemon_installed && !status.daemon_running) {
+        // Daemon is installed but not running - show error
+        setDeploymentStatus({
+          state: 'error',
+          message: 'Daemon is installed but not running on the remote server. Please check the daemon.'
+        })
+        setPendingConnection(null)
+        setDaemonCheckInProgress(false)
+      } else {
+        // Daemon not installed - offer to deploy
+        setDeploymentStatus({
+          state: 'prompt',
+          message: 'Daemon is not installed on the remote server. Deploy it now?'
+        })
+        setDaemonCheckInProgress(false)
+      }
+    } catch (err) {
+      setDeploymentStatus({
+        state: 'error',
+        message: `Failed to check daemon: ${err.message}`
+      })
+      setPendingConnection(null)
+      setDaemonCheckInProgress(false)
+    }
+  }
+
+  const handleDeployDaemon = async () => {
+    if (!pendingConnection) return
+
+    setDeploymentStatus({
+      state: 'deploying',
+      message: 'Deploying daemon to remote server...'
+    })
+
+    try {
+      const result = await api.deployDaemonToServer(
+        pendingConnection.host,
+        pendingConnection.username,
+        pendingConnection.password
+      )
+
+      if (result.error) {
+        setDeploymentStatus({
+          state: 'error',
+          message: `Deployment failed: ${result.error}`
+        })
+      } else if (result.daemon_running) {
+        setDeploymentStatus({
+          state: 'success',
+          message: 'Daemon deployed successfully! Connecting...'
+        })
+        // Wait a moment then connect
+        setTimeout(() => {
+          onConnect('ssh', {
+            host: pendingConnection.host,
+            username: pendingConnection.username,
+            password: pendingConnection.password
+          })
+          setDeploymentStatus(null)
+          setPendingConnection(null)
+        }, 1500)
+      }
+    } catch (err) {
+      setDeploymentStatus({
+        state: 'error',
+        message: `Deployment error: ${err.message}`
+      })
+    }
+  }
+
+  const cancelDeployment = () => {
+    setDeploymentStatus(null)
+    setPendingConnection(null)
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-8">
@@ -125,47 +221,117 @@ function ConnectionScreen({ onConnect, loading, error }) {
         </h1>
         <p className="text-center text-gray-600 mb-6">Server Connection</p>
 
-        {profiles.length > 0 && !showNewServerForm && !showPasswordDialog && (
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-gray-700 mb-3">
-              Saved Servers
-            </h2>
-            <div className="space-y-2 mb-4">
-              {profiles.map(profile => (
-                <label
-                  key={profile.name}
-                  className="flex items-center p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-blue-50 transition"
-                >
-                  <input
-                    type="radio"
-                    name="profile"
-                    checked={selectedProfile?.name === profile.name}
-                    onChange={() => setSelectedProfile(profile)}
-                    className="w-4 h-4"
+        {deploymentStatus && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                {deploymentStatus.state === 'deploying' && 'Deploying Daemon'}
+                {deploymentStatus.state === 'prompt' && 'Deploy Daemon'}
+                {deploymentStatus.state === 'success' && 'Deployment Successful'}
+                {deploymentStatus.state === 'error' && 'Deployment Error'}
+              </h2>
+              <div className="flex items-center justify-center mb-4">
+                {deploymentStatus.state === 'deploying' && (
+                  <FontAwesomeIcon
+                    icon={faCircle}
+                    className="animate-spin text-blue-600"
+                    size="lg"
                   />
-                  <span className="ml-3 text-sm text-gray-700">
-                    {profile.name} ({profile.username}@{profile.host})
-                  </span>
-                </label>
-              ))}
+                )}
+                {deploymentStatus.state === 'success' && (
+                  <FontAwesomeIcon
+                    icon={faCheck}
+                    className="text-green-600"
+                    size="lg"
+                  />
+                )}
+                {deploymentStatus.state === 'error' && (
+                  <FontAwesomeIcon
+                    icon={faTimes}
+                    className="text-red-600"
+                    size="lg"
+                  />
+                )}
+              </div>
+              <p className="text-sm text-gray-600 text-center mb-4">
+                {deploymentStatus.message}
+              </p>
+              {deploymentStatus.state === 'prompt' && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={cancelDeployment}
+                    className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeployDaemon}
+                    disabled={daemonCheckInProgress}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-2 px-4 rounded-lg transition"
+                  >
+                    Deploy
+                  </button>
+                </div>
+              )}
+              {deploymentStatus.state === 'error' && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={cancelDeployment}
+                    className="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition"
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
             </div>
-            <button
-              onClick={handleConnectToSelected}
-              disabled={loading || !selectedProfile}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-2 px-4 rounded-lg transition mb-2"
-            >
-              {loading ? 'Connecting...' : 'Connect to Selected Server'}
-            </button>
+          </div>
+        )}
+
+        {!showNewServerForm && !showPasswordDialog && !deploymentStatus && (
+          <div className="mb-6">
+            {profiles.length > 0 && (
+              <>
+                <h2 className="text-lg font-semibold text-gray-700 mb-3">
+                  Saved Servers
+                </h2>
+                <div className="space-y-2 mb-4">
+                  {profiles.map(profile => (
+                    <label
+                      key={profile.name}
+                      className="flex items-center p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-blue-50 transition"
+                    >
+                      <input
+                        type="radio"
+                        name="profile"
+                        checked={selectedProfile?.name === profile.name}
+                        onChange={() => setSelectedProfile(profile)}
+                        className="w-4 h-4"
+                      />
+                      <span className="ml-3 text-sm text-gray-700">
+                        {profile.name} ({profile.username}@{profile.host})
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <button
+                  onClick={handleConnectToSelected}
+                  disabled={loading || !selectedProfile}
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-2 px-4 rounded-lg transition mb-2"
+                >
+                  {loading ? 'Connecting...' : 'Connect to Selected Server'}
+                </button>
+              </>
+            )}
             <button
               onClick={() => setShowNewServerForm(true)}
               className="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition"
             >
-              Add New Server
+              {profiles.length > 0 ? 'Add New Server' : 'Connect to SSH Server'}
             </button>
           </div>
         )}
 
-        {showPasswordDialog && (
+        {showPasswordDialog && !daemonCheckInProgress && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">

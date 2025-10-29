@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faChartLine, faGlobe, faCamera, faCog, faSignOutAlt, faChevronLeft, faChevronRight, faTimes } from '@fortawesome/free-solid-svg-icons'
+import { faChartLine, faGlobe, faCamera, faCog, faSignOutAlt, faChevronLeft, faChevronRight, faTimes, faCircle, faWifi } from '@fortawesome/free-solid-svg-icons'
+import api from '../api'
 
 function DashboardLayout({
   currentScreen,
@@ -12,6 +13,96 @@ function DashboardLayout({
   children
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [connectionHealth, setConnectionHealth] = useState(null)
+  const [connectionRefreshInterval, setConnectionRefreshInterval] = useState(null)
+  const [notification, setNotification] = useState(null)
+  const [previousState, setPreviousState] = useState(null)
+
+  useEffect(() => {
+    // Get initial connection health
+    const fetchHealth = async () => {
+      try {
+        const health = await api.getConnectionHealth()
+        setConnectionHealth(health)
+
+        // Show notification if state changed
+        if (previousState && previousState !== health.state) {
+          showNotification(health.state)
+        }
+
+        setPreviousState(health.state)
+      } catch (err) {
+        console.error('Failed to get connection health:', err)
+      }
+    }
+
+    fetchHealth()
+
+    // Set up periodic health checks every 10 seconds
+    const interval = setInterval(fetchHealth, 10000)
+    setConnectionRefreshInterval(interval)
+
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [previousState])
+
+  const showNotification = (state) => {
+    let message = ''
+    let type = 'info'
+
+    switch (state) {
+      case 'connected':
+        message = '✓ Connection restored'
+        type = 'success'
+        break
+      case 'reconnecting':
+        message = '⟳ Attempting to reconnect...'
+        type = 'warning'
+        break
+      case 'failed':
+        message = '✗ Connection lost'
+        type = 'error'
+        break
+      default:
+        return
+    }
+
+    setNotification({ message, type })
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+      setNotification(null)
+    }, 5000)
+  }
+
+  const getStatusColor = (state) => {
+    switch (state) {
+      case 'connected':
+        return 'text-green-600'
+      case 'reconnecting':
+        return 'text-yellow-600'
+      case 'failed':
+        return 'text-red-600'
+      default:
+        return 'text-gray-600'
+    }
+  }
+
+  const getStatusLabel = (state) => {
+    switch (state) {
+      case 'connected':
+        return 'Connected'
+      case 'reconnecting':
+        return 'Reconnecting...'
+      case 'failed':
+        return 'Connection Failed'
+      case 'connecting':
+        return 'Connecting...'
+      default:
+        return 'Disconnected'
+    }
+  }
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: faChartLine },
@@ -73,6 +164,43 @@ function DashboardLayout({
 
       {/* Main content */}
       <div className="flex-1 flex flex-col">
+        {/* Notification Toast */}
+        {notification && (
+          <div
+            className={`fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white font-medium z-50 transition-all ${
+              notification.type === 'success'
+                ? 'bg-green-500'
+                : notification.type === 'error'
+                ? 'bg-red-500'
+                : notification.type === 'warning'
+                ? 'bg-yellow-500'
+                : 'bg-blue-500'
+            }`}
+          >
+            {notification.message}
+          </div>
+        )}
+
+        {/* Header with connection status */}
+        <div className="bg-white border-b border-gray-200 px-6 py-4 flex justify-end items-center">
+          {connectionHealth && (
+            <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-gray-50 border border-gray-200">
+              <FontAwesomeIcon
+                icon={faCircle}
+                className={`text-sm ${getStatusColor(connectionHealth.state)}`}
+              />
+              <span className={`text-sm font-medium ${getStatusColor(connectionHealth.state)}`}>
+                {getStatusLabel(connectionHealth.state)}
+              </span>
+              {connectionHealth.host && (
+                <span className="text-xs text-gray-600 ml-2">
+                  {connectionHealth.user}@{connectionHealth.host}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Error banner */}
         {error && (
           <div className="bg-red-50 border-b border-red-200 p-4">
