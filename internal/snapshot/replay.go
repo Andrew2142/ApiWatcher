@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/chromedp/cdproto/network"
@@ -14,10 +15,10 @@ import (
 
 // ReplayResult holds the result of a snapshot replay including any API errors detected
 type ReplayResult struct {
-	SnapshotID string           // The snapshot ID
-	Success    bool             // Whether replay completed without errors
-	APIErrors  []*APIErrorInfo  // List of API errors detected during replay
-	Duration   time.Duration    // Time taken to complete replay
+	SnapshotID string          // The snapshot ID
+	Success    bool            // Whether replay completed without errors
+	APIErrors  []*APIErrorInfo // List of API errors detected during replay
+	Duration   time.Duration   // Time taken to complete replay
 }
 
 // APIErrorInfo holds information about a detected API error
@@ -58,18 +59,24 @@ func ReplayWithResult(s *Snapshot) (*ReplayResult, error) {
 	ctx, cancelCtx := chromedp.NewContext(allocCtx)
 	defer cancelCtx()
 
-	// Listen for network responses to catch API errors
+	// Listen for network responses to catch API errors (async to avoid blocking)
+	var apiErrorsMu sync.Mutex
 	chromedp.ListenTarget(ctx, func(ev any) {
 		if ev, ok := ev.(*network.EventResponseReceived); ok {
 			if ev.Response.Status >= 400 {
 				apiURL := ev.Response.URL
 				if !config.IsStaticAsset(apiURL) {
-					result.APIErrors = append(result.APIErrors, &APIErrorInfo{
-						URL:        apiURL,
-						StatusCode: int(ev.Response.Status),
-						Timestamp:  time.Now(),
-					})
-					log.Printf("[SNAPSHOT] 🚨 API Error #%d detected: %d %s\n", len(result.APIErrors), int(ev.Response.Status), apiURL)
+					// Run in goroutine to avoid blocking the event handler
+					go func(url string, status int64) {
+						apiErrorsMu.Lock()
+						result.APIErrors = append(result.APIErrors, &APIErrorInfo{
+							URL:        url,
+							StatusCode: int(status),
+							Timestamp:  time.Now(),
+						})
+						apiErrorsMu.Unlock()
+						log.Printf("[SNAPSHOT] 🚨 API Error #%d detected: %d %s\n", len(result.APIErrors), status, url)
+					}(apiURL, ev.Response.Status)
 				}
 			}
 		}
@@ -117,17 +124,25 @@ func ReplayWithResult(s *Snapshot) (*ReplayResult, error) {
 					log.Printf("[SNAPSHOT] ✅ Navigation successful\n")
 				}
 			}
-		case "click":
+		case "click", "mousedown":
 			if a.Selector != "" {
-				log.Printf("[SNAPSHOT] 🖱️  Action %d/%d: Click on '%s'\n", i+1, len(filteredActions), a.Selector)
+				actionType := "Click"
+				if a.Type == "mousedown" {
+					actionType = "MouseDown (dropdown selection)"
+				}
+				desc := a.Selector
+				if a.Text != "" {
+					desc = fmt.Sprintf("%s (%s)", a.Selector, a.Text)
+				}
+				log.Printf("[SNAPSHOT] 🖱️  Action %d/%d: %s on '%s'\n", i+1, len(filteredActions), actionType, desc)
 				if err := chromedp.Run(runCtx,
 					chromedp.WaitVisible(a.Selector, chromedp.ByQuery),
 					chromedp.ScrollIntoView(a.Selector, chromedp.ByQuery),
 					chromedp.Click(a.Selector, chromedp.ByQuery),
 				); err != nil {
-					log.Printf("[SNAPSHOT] ❌ Click failed on action %d: %v\n", i+1, err)
+					log.Printf("[SNAPSHOT] ❌ %s failed on action %d: %v\n", actionType, i+1, err)
 				} else {
-					log.Printf("[SNAPSHOT] ✅ Click successful\n")
+					log.Printf("[SNAPSHOT] ✅ %s successful\n", actionType)
 				}
 			}
 		case "input":
@@ -142,6 +157,25 @@ func ReplayWithResult(s *Snapshot) (*ReplayResult, error) {
 					log.Printf("[SNAPSHOT] ❌ Input failed on action %d: %v\n", i+1, err)
 				} else {
 					log.Printf("[SNAPSHOT] ✅ Input successful\n")
+				}
+			}
+		case "change":
+			if a.Selector != "" {
+				log.Printf("[SNAPSHOT] 📝 Action %d/%d: Change '%s' to '%s'\n", i+1, len(filteredActions), a.Selector, a.Value)
+				// Skip change actions - they are usually redundant with input actions
+				// and can cause hangs with custom form components
+				log.Printf("[SNAPSHOT] ⚠️  Skipping change action (use input actions instead)\n")
+			}
+		case "keydown":
+			if a.Selector != "" {
+				log.Printf("[SNAPSHOT] ⌨️  Action %d/%d: Key press '%s' on '%s'\n", i+1, len(filteredActions), a.Key, a.Selector)
+				if err := chromedp.Run(runCtx,
+					chromedp.Focus(a.Selector, chromedp.ByQuery),
+					chromedp.SendKeys(a.Selector, a.Key, chromedp.ByQuery),
+				); err != nil {
+					log.Printf("[SNAPSHOT] ❌ Keydown failed on action %d: %v\n", i+1, err)
+				} else {
+					log.Printf("[SNAPSHOT] ✅ Keydown successful\n")
 				}
 			}
 		default:

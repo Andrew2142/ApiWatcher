@@ -31,6 +31,10 @@ type SnapshotAction struct {
 	Type      string `json:"type"`
 	Selector  string `json:"selector,omitempty"`
 	Value     string `json:"value,omitempty"`
+	Text      string `json:"text,omitempty"`      // Element text content (for dropdown suggestions)
+	Classes   string `json:"classes,omitempty"`   // Element classes (for better targeting)
+	AriaLabel string `json:"ariaLabel,omitempty"` // ARIA label (for accessibility-aware targeting)
+	Key       string `json:"key,omitempty"`       // Keyboard key (for keydown events)
 	Timestamp int64  `json:"timestamp,omitempty"`
 	URL       string `json:"url,omitempty"`
 }

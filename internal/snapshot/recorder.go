@@ -48,7 +48,7 @@ func RecordWithCallback(targetURL string, snapshotName string, stopChan chan boo
 	var actions []models.SnapshotAction
 	var actionsMu sync.Mutex
 
-	// Listen for CDP events
+	// Listen for CDP events (async handlers to avoid blocking per chromedp docs)
 	chromedp.ListenTarget(ctx, func(ev interface{}) {
 		switch ev := ev.(type) {
 		case *page.EventJavascriptDialogOpening:
@@ -57,27 +57,33 @@ func RecordWithCallback(targetURL string, snapshotName string, stopChan chan boo
 
 		case *page.EventFrameNavigated:
 			// Track navigation events using CDP page events
+			// Run in goroutine to avoid blocking the event handler
 			if ev.Frame.ParentID == "" { // Only track main frame navigations
-				actionsMu.Lock()
-				actions = append(actions, models.SnapshotAction{
-					Type:      "navigate",
-					URL:       ev.Frame.URL,
-					Timestamp: time.Now().UnixMilli(),
-				})
-				actionsMu.Unlock()
-				log.Printf("[RECORDER] Navigation: %s", ev.Frame.URL)
+				go func(navEv *page.EventFrameNavigated) {
+					actionsMu.Lock()
+					actions = append(actions, models.SnapshotAction{
+						Type:      "navigate",
+						URL:       navEv.Frame.URL,
+						Timestamp: time.Now().UnixMilli(),
+					})
+					actionsMu.Unlock()
+					log.Printf("[RECORDER] Navigation: %s", navEv.Frame.URL)
+				}(ev)
 			}
 
 		case *runtime.EventBindingCalled:
 			// Handle bound function calls from page
+			// Run in goroutine to avoid blocking the event handler
 			if ev.Name == "recordAction" {
-				var action models.SnapshotAction
-				if err := json.Unmarshal([]byte(ev.Payload), &action); err == nil {
-					actionsMu.Lock()
-					actions = append(actions, action)
-					actionsMu.Unlock()
-					log.Printf("[RECORDER] Recorded %s action", action.Type)
-				}
+				go func(bindEv *runtime.EventBindingCalled) {
+					var action models.SnapshotAction
+					if err := json.Unmarshal([]byte(bindEv.Payload), &action); err == nil {
+						actionsMu.Lock()
+						actions = append(actions, action)
+						actionsMu.Unlock()
+						log.Printf("[RECORDER] Recorded %s action", action.Type)
+					}
+				}(ev)
 			}
 		}
 	})
@@ -129,15 +135,30 @@ func RecordWithCallback(targetURL string, snapshotName string, stopChan chan boo
 						return path.join(' > ');
 					}
 
+					// Helper to capture text content for better targeting
+					function getElementInfo(el) {
+						return {
+							selector: getSelector(el),
+							text: el.textContent ? el.textContent.trim().substring(0, 100) : "",
+							classes: el.className || "",
+							ariaLabel: el.getAttribute('aria-label') || ""
+						};
+					}
+
+					// Capture click events (including suggestion clicks)
 					document.addEventListener('click', function(e) {
+						var info = getElementInfo(e.target);
 						recordAction(JSON.stringify({
 							type: 'click',
-							selector: getSelector(e.target),
+							selector: info.selector,
+							text: info.text,
+							classes: info.classes,
 							timestamp: Date.now(),
 							url: location.href
 						}));
 					}, true);
 
+					// Capture input events (text entry)
 					document.addEventListener('input', function(e) {
 						recordAction(JSON.stringify({
 							type: 'input',
@@ -146,6 +167,59 @@ func RecordWithCallback(targetURL string, snapshotName string, stopChan chan boo
 							timestamp: Date.now(),
 							url: location.href
 						}));
+					}, true);
+
+					// Capture mousedown events (for dropdown selections that use mousedown)
+					document.addEventListener('mousedown', function(e) {
+						var info = getElementInfo(e.target);
+						// Only record mousedown if it looks like it could be a dropdown item
+						if (info.text || info.ariaLabel || e.target.getAttribute('role') === 'option') {
+							recordAction(JSON.stringify({
+								type: 'mousedown',
+								selector: info.selector,
+								text: info.text,
+								ariaLabel: info.ariaLabel,
+								timestamp: Date.now(),
+								url: location.href
+							}));
+						}
+					}, true);
+
+					// Capture change events (for select elements and custom inputs)
+					// Note: Skip change events that follow input/click events on same element
+					// to avoid redundant actions
+					var lastInputTarget = null;
+					var lastInputTime = 0;
+					document.addEventListener('input', function(e) {
+						lastInputTarget = e.target;
+						lastInputTime = Date.now();
+					}, true);
+
+					document.addEventListener('change', function(e) {
+						// Skip if this is likely a follow-up to a recent input on same target
+						if (e.target === lastInputTarget && (Date.now() - lastInputTime) < 500) {
+							return;
+						}
+						recordAction(JSON.stringify({
+							type: 'change',
+							selector: getSelector(e.target),
+							value: e.target.value,
+							timestamp: Date.now(),
+							url: location.href
+						}));
+					}, true);
+
+					// Capture keydown for special keys that might interact with dropdowns
+					document.addEventListener('keydown', function(e) {
+						if (e.key === 'Enter' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+							recordAction(JSON.stringify({
+								type: 'keydown',
+								selector: getSelector(e.target),
+								key: e.key,
+								timestamp: Date.now(),
+								url: location.href
+							}));
+						}
 					}, true);
 				})();
 			`).Do(ctx)
