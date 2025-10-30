@@ -33,18 +33,6 @@ echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-**macOS (Intel/x86_64):**
-```bash
-# Download and extract
-curl -O https://go.dev/dl/go1.25.3.darwin-amd64.tar.gz
-sudo rm -rf /usr/local/go
-sudo tar -C /usr/local -xzf go1.25.3.darwin-amd64.tar.gz
-
-# Add to PATH
-echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.zshrc
-source ~/.zshrc
-```
-
 **macOS (Apple Silicon/ARM64):**
 ```bash
 # Download and extract
