@@ -478,6 +478,13 @@ func (d *Daemon) runMonitoring(ctx context.Context) {
 		default:
 		}
 
+		// Load SMTP config to get alert email
+		smtpConfig, _ := config.LoadSMTPConfig()
+		alertEmail := d.config.Email // Fallback to config email
+		if smtpConfig != nil && smtpConfig.To != "" {
+			alertEmail = smtpConfig.To
+		}
+
 		// ============ PHASE 1: API Checks (Parallel with 30 workers) ============
 		websiteCount := len(d.config.Websites)
 		d.Logf("[PHASE 1] Queueing %d API check jobs", websiteCount)
@@ -487,7 +494,7 @@ func (d *Daemon) runMonitoring(ctx context.Context) {
 			// Use legacy Job structure for compatibility with existing worker
 			job := monitor.Job{
 				Website:  site,
-				Email:    d.config.Email,
+				Email:    alertEmail,
 				Snapshot: nil, // No snapshots in Phase 1
 			}
 
@@ -519,7 +526,7 @@ func (d *Daemon) runMonitoring(ctx context.Context) {
 			// Run snapshots sequentially (one at a time to avoid RAM issues)
 			snapJob := monitor.SnapshotJob{
 				Website:   site,
-				Email:     d.config.Email,
+				Email:     alertEmail,
 				Snapshots: snapshotList,
 			}
 			monitor.ProcessSnapshots(snapJob, d)

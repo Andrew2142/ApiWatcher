@@ -91,35 +91,18 @@ func ProcessJob(ctx context.Context, id int, job Job, logger Logger) JobResult {
 
 	// Load alert log
 	alertLog, _ := alert.LoadLog()
-	now := time.Now().Unix()
-	fiveHours := int64(5 * 3600) // 5 hours in seconds
 
 	// Handle failed requests
 	if len(badRequests) > 0 {
 		result.Success = false
 		result.ErrorCount = len(badRequests)
 
-		lastAlert, exists := alertLog[job.Website]
-
 		body := "The following API calls failed:\n\n"
 		for _, r := range badRequests {
 			body += fmt.Sprintf("%d %s\n", r.StatusCode, r.URL)
 		}
 
-		if exists && now-lastAlert < fiveHours {
-			logger.Logf("[INFO] Skipping email for %s (sent recently)", job.Website)
-		} else {
-			if sendErr := email.Send(job.Email, "⚠️ API Errors Detected", body); sendErr != nil {
-				logger.Logf("[ERROR] Failed to send email: %v", sendErr)
-			} else {
-				logger.Logf("[ALERT] Email sent successfully")
-				result.AlertSent = true
-				alertLog[job.Website] = now
-				if err := alert.SaveLog(alertLog); err != nil {
-					logger.Logf("[ERROR] Failed to save alert log: %v", err)
-				}
-			}
-		}
+		result.AlertSent = sendErrorAlert(job.Website, job.Email, "⚠️ API Errors Detected", body, alertLog, logger)
 	} else {
 		logger.Logf("[OK] No API errors detected for %s", job.Website)
 	}
@@ -187,35 +170,18 @@ func ProcessAPIJob(ctx context.Context, id int, job APIJob, logger Logger) JobRe
 
 	// Load alert log
 	alertLog, _ := alert.LoadLog()
-	now := time.Now().Unix()
-	fiveHours := int64(5 * 3600) // 5 hours in seconds
 
 	// Handle failed requests
 	if len(badRequests) > 0 {
 		result.Success = false
 		result.ErrorCount = len(badRequests)
 
-		lastAlert, exists := alertLog[job.Website]
-
 		body := "The following API calls failed:\n\n"
 		for _, r := range badRequests {
 			body += fmt.Sprintf("%d %s\n", r.StatusCode, r.URL)
 		}
 
-		if exists && now-lastAlert < fiveHours {
-			logger.Logf("[INFO] Skipping email for %s (sent recently)", job.Website)
-		} else {
-			if sendErr := email.Send(job.Email, "⚠️ API Errors Detected", body); sendErr != nil {
-				logger.Logf("[ERROR] Failed to send email: %v", sendErr)
-			} else {
-				logger.Logf("[ALERT] Email sent successfully")
-				result.AlertSent = true
-				alertLog[job.Website] = now
-				if err := alert.SaveLog(alertLog); err != nil {
-					logger.Logf("[ERROR] Failed to save alert log: %v", err)
-				}
-			}
-		}
+		result.AlertSent = sendErrorAlert(job.Website, job.Email, "⚠️ API Errors Detected", body, alertLog, logger)
 	} else {
 		logger.Logf("[OK] No API errors detected for %s", job.Website)
 	}
@@ -252,7 +218,23 @@ func ProcessSnapshots(job SnapshotJob, logger Logger) {
 
 			// Send alert email for snapshot API errors
 			if job.Email != "" {
-				sendSnapshotErrorAlert(job.Website, snap.ID, result.APIErrors, job.Email, logger)
+				alertLog, _ := alert.LoadLog()
+				body := fmt.Sprintf(`Snapshot Replay Error Alert
+
+Snapshot: %s
+Website: %s
+
+API Errors Detected: %d
+
+Failed API Calls:
+`, snap.ID, job.Website, len(result.APIErrors))
+
+				for _, apiErr := range result.APIErrors {
+					body += fmt.Sprintf("  %d %s\n", apiErr.StatusCode, apiErr.URL)
+				}
+
+				subject := fmt.Sprintf("⚠️ Snapshot Replay - API Errors Detected for %s", job.Website)
+				sendErrorAlert("snapshot_"+snap.ID, job.Email, subject, body, alertLog, logger)
 			}
 		} else {
 			// Successful replay with no API errors
@@ -264,51 +246,31 @@ func ProcessSnapshots(job SnapshotJob, logger Logger) {
 	logger.Logf("[SNAPSHOTS] All snapshots completed for %s", job.Website)
 }
 
-// sendSnapshotErrorAlert sends an email alert when snapshot replay detects API errors
-func sendSnapshotErrorAlert(website string, snapshotID string, apiErrors []*snapshot.APIErrorInfo, recipientEmail string, logger Logger) {
-	// Check alert throttle - use snapshot ID as key to allow different alerts per snapshot
-	alertLog, err := alert.LoadLog()
-	if err != nil {
-		logger.Logf("[ERROR] Failed to load alert log: %v", err)
-		return
-	}
+// sendErrorAlert sends an email alert for API errors with throttling to prevent email floods
+// alertKey is used to track when the last alert was sent (can be website name or "snapshot_" + snapshotID)
+func sendErrorAlert(alertKey string, recipientEmail string, subject string, body string, alertLog alert.Log, logger Logger) bool {
 	now := time.Now().Unix()
-	fiveHours := int64(5 * 3600)
+	fiveHours := int64(5 * 3600) // 5 hours in seconds
 
-	alertKey := "snapshot_" + snapshotID
+	// Check if we've sent an alert for this key recently
 	if lastAlert, exists := alertLog[alertKey]; exists && now-lastAlert < fiveHours {
-		logger.Logf("[ALERT] Snapshot error alert for %s skipped (sent recently)", snapshotID)
-		return
-	}
-
-	// Format email body with API error details
-	subject := fmt.Sprintf("⚠️ Snapshot Replay - API Errors Detected for %s", website)
-	body := fmt.Sprintf(`Snapshot Replay Error Alert
-
-Snapshot: %s
-Website: %s
-
-API Errors Detected: %d
-
-Failed API Calls:
-`, snapshotID, website, len(apiErrors))
-
-	for _, apiErr := range apiErrors {
-		body += fmt.Sprintf("  %d %s\n", apiErr.StatusCode, apiErr.URL)
+		logger.Logf("[INFO] Skipping email for %s (sent recently)", alertKey)
+		return false
 	}
 
 	// Send email
 	if err := email.Send(recipientEmail, subject, body); err != nil {
-		logger.Logf("[ALERT] Failed to send snapshot error email for %s: %v", snapshotID, err)
-		return
+		logger.Logf("[ERROR] Failed to send email: %v", err)
+		return false
 	}
 
 	// Update alert log
 	alertLog[alertKey] = now
 	if err := alert.SaveLog(alertLog); err != nil {
 		logger.Logf("[ERROR] Failed to save alert log: %v", err)
-		return
+		return false
 	}
 
-	logger.Logf("[ALERT] Snapshot error email sent for %s to %s", snapshotID, recipientEmail)
+	logger.Logf("[ALERT] Email sent successfully for %s to %s", alertKey, recipientEmail)
+	return true
 }
