@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"apiwatcher/internal/config"
 	"apiwatcher/internal/models"
 	"bufio"
 	"context"
@@ -31,12 +32,15 @@ func Record(targetURL string, snapshotName string) (*Snapshot, error) {
 // If stopChan is provided, recording stops when a value is sent to it.
 // If stopChan is nil, uses stdin (CLI mode).
 func RecordWithCallback(targetURL string, snapshotName string, stopChan chan bool) (*Snapshot, error) {
-	// Launch a visible Chrome instance (non-headless)
+	// Get headless mode setting from config
+	headlessMode := config.IsHeadlessBrowserMode()
+
+	// Launch Chrome instance with configurable headless mode
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", false),
+		chromedp.Flag("headless", headlessMode),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("no-first-run", true),
-		chromedp.Flag("start-maximized", true),
+		chromedp.Flag("start-maximized", !headlessMode), // Only maximize if not headless
 	)
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancelAlloc()

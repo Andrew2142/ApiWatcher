@@ -43,7 +43,7 @@ export const api = {
 
   // Settings
   getAppSettings: () => window.backend.App.GetAppSettings(),
-  saveAppSettings: (workerSleepTime) => window.backend.App.SaveAppSettings(workerSleepTime),
+  saveAppSettings: (workerSleepTime, headlessBrowserMode) => window.backend.App.SaveAppSettings(workerSleepTime, headlessBrowserMode),
 
   // Utilities
   ping: () => window.backend.App.Ping(),

@@ -21,8 +21,18 @@ func CheckWebsite(parentCtx context.Context, url string) ([]*models.APIRequest, 
 		parentCtx = context.Background()
 	}
 
-	// Create chromedp context from parent context so it can be cancelled
-	ctx, cancel := chromedp.NewContext(parentCtx)
+	// Get headless mode setting from config
+	headlessMode := config.IsHeadlessBrowserMode()
+
+	// Create chromedp exec allocator with headless setting
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", headlessMode),
+	)
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(parentCtx, opts...)
+	defer cancelAlloc()
+
+	// Create chromedp context from allocator so it can be cancelled
+	ctx, cancel := chromedp.NewContext(allocCtx)
 	defer cancel()
 
 	var badRequests []*models.APIRequest

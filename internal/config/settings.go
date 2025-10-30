@@ -11,7 +11,8 @@ import (
 
 // AppSettings stores persistent application settings
 type AppSettings struct {
-	WorkerSleepTime int `json:"worker_sleep_time"` // Minutes between monitoring cycles
+	WorkerSleepTime     int  `json:"worker_sleep_time"`      // Minutes between monitoring cycles
+	HeadlessBrowserMode bool `json:"headless_browser_mode"` // Enable headless browser mode for recordings and replays
 }
 
 var (
@@ -103,4 +104,11 @@ func GetWorkerSleepTime() int {
 	settingsMutex.RLock()
 	defer settingsMutex.RUnlock()
 	return currentSettings.WorkerSleepTime
+}
+
+// IsHeadlessBrowserMode returns whether headless browser mode is enabled
+func IsHeadlessBrowserMode() bool {
+	settingsMutex.RLock()
+	defer settingsMutex.RUnlock()
+	return currentSettings.HeadlessBrowserMode
 }

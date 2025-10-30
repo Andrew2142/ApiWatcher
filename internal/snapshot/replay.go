@@ -45,12 +45,15 @@ func ReplayWithResult(s *Snapshot) (*ReplayResult, error) {
 		APIErrors:  make([]*APIErrorInfo, 0),
 	}
 
+	// Get headless mode setting from config
+	headlessMode := config.IsHeadlessBrowserMode()
+
 	// Chrome allocator options
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", false),
+		chromedp.Flag("headless", headlessMode),
 		chromedp.Flag("disable-gpu", false),
 		chromedp.Flag("no-first-run", true),
-		chromedp.Flag("start-maximized", true),
+		chromedp.Flag("start-maximized", !headlessMode), // Only maximize if not headless
 	)
 
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)

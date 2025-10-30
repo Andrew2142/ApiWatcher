@@ -840,18 +840,20 @@ func (a *App) GetLastConnectedServer() string {
 func (a *App) GetAppSettings() (map[string]interface{}, error) {
 	settings := config.GetSettings()
 	return map[string]interface{}{
-		"worker_sleep_time": settings.WorkerSleepTime,
+		"worker_sleep_time":      settings.WorkerSleepTime,
+		"headless_browser_mode": settings.HeadlessBrowserMode,
 	}, nil
 }
 
 // SaveAppSettings saves application settings
-func (a *App) SaveAppSettings(workerSleepTime int) error {
+func (a *App) SaveAppSettings(workerSleepTime int, headlessBrowserMode bool) error {
 	settings := &config.AppSettings{
-		WorkerSleepTime: workerSleepTime,
+		WorkerSleepTime:     workerSleepTime,
+		HeadlessBrowserMode: headlessBrowserMode,
 	}
 	if err := config.SaveSettings(settings); err != nil {
 		return fmt.Errorf("failed to save settings: %w", err)
 	}
-	log.Printf("Settings updated: worker_sleep_time=%d minutes", workerSleepTime)
+	log.Printf("Settings updated: worker_sleep_time=%d minutes, headless_browser_mode=%v", workerSleepTime, headlessBrowserMode)
 	return nil
 }

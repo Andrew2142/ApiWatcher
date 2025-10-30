@@ -10,6 +10,7 @@ function SettingsScreen({ onNavigate, error, setError }) {
 
   // General Settings
   const [workerSleepTime, setWorkerSleepTime] = useState(10)
+  const [headlessBrowserMode, setHeadlessBrowserMode] = useState(false)
   const [generalSaved, setGeneralSaved] = useState(false)
 
   // SMTP Settings
@@ -30,6 +31,9 @@ function SettingsScreen({ onNavigate, error, setError }) {
       const appSettings = await api.getAppSettings()
       if (appSettings && appSettings.worker_sleep_time) {
         setWorkerSleepTime(appSettings.worker_sleep_time)
+      }
+      if (appSettings && appSettings.headless_browser_mode !== undefined) {
+        setHeadlessBrowserMode(appSettings.headless_browser_mode)
       }
       await loadSMTPStatus()
       setGeneralSaved(false)
@@ -75,7 +79,7 @@ function SettingsScreen({ onNavigate, error, setError }) {
     }
     try {
       setSaving(true)
-      await api.saveAppSettings(workerSleepTime)
+      await api.saveAppSettings(workerSleepTime, headlessBrowserMode)
       setGeneralSaved(true)
       setError(null)
       setTimeout(() => setGeneralSaved(false), 2000)
@@ -219,6 +223,27 @@ function SettingsScreen({ onNavigate, error, setError }) {
                 <p className="text-xs text-gray-500 mt-2">
                   Default: 10 minutes | Min: 1 minute | Max: 24 hours (1440 minutes)
                 </p>
+              </div>
+
+              {/* Headless Browser Mode */}
+              <div className="border-b border-gray-200 pb-6">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={headlessBrowserMode}
+                    onChange={(e) => {
+                      setHeadlessBrowserMode(e.target.checked)
+                      setGeneralSaved(false)
+                    }}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-700">Enable Headless Browser Mode</p>
+                    <p className="text-xs text-gray-500">
+                      When enabled, browser windows will run in headless mode (invisible) during snapshot recording and replay. Disable to see browser windows.
+                    </p>
+                  </div>
+                </label>
               </div>
 
               {/* Save Button */}
