@@ -94,7 +94,7 @@ echo ""
 
 # Start Wails
 echo "Starting Wails..."
-/home/andy007/go/bin/wails serve
+wails serve
 if [ $? -ne 0 ]; then
     error_exit "Wails failed to start"
 fi

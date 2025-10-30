@@ -1,63 +1,79 @@
 # API Watcher
 
-A powerful website and API monitoring application with interactive snapshot recording and replay capabilities. Monitor your infrastructure in real-time, record user interactions, and replay them to verify functionality.
+A lightweight website and API monitoring application with interactive snapshot recording and replay capabilities.
 
-## Key Features
+## Features
 
-- **Real-time Monitoring** - Continuously monitor website and API availability with configurable check intervals
-- **Interactive Snapshots** - Record user interactions (clicks, form fills, navigation) using a visible browser
-- **Snapshot Replay** - Replay recorded snapshots in a headless or visible browser to verify functionality
-- **SSH Remote Monitoring** - Monitor APIs and websites on remote servers via SSH tunneling
-- **Email Alerts** - Receive SMTP-based email notifications when websites go down or experience issues
-- **Dashboard Analytics** - View uptime statistics (1h, 24h, 7d), response times, and health metrics
-- **Headless Browser Mode** - Toggle between visible and headless browser for recordings and replays
-- **Configuration Presets** - Save and load monitoring configurations for quick switching
-- **Cross-Platform Desktop App** - Built with Go and React for a modern UI experience
+- Real-time website/API monitoring
+- Record user interactions with visible browser
+- Replay snapshots to verify functionality
+- Email alerts for failures
+- Dashboard with uptime statistics
+- SSH remote monitoring
+- Headless browser mode toggle
 
-## Tech Stack
+## Requirements
 
-**Backend:**
-- Go 1.25.1+ with Wails framework for desktop UI
-- ChromeDP for browser automation and snapshot recording
-- SSH support via golang.org/x/crypto for remote monitoring
-- Custom daemon architecture for background monitoring
+**This application requires Linux, WSL2, or native macOS/Linux. Windows is not supported.**
 
-**Frontend:**
-- React 18.2.0 with modern hooks
-- TailwindCSS for responsive styling
-- ag-grid for data tables and statistics
-- FontAwesome icons
-- Webpack for bundling
+## Installation
 
-## Prerequisites
+Follow these steps in order:
 
-Before you begin, ensure you have the following installed:
+### 1. Install Go 1.25.3+
 
-- **Go** 1.25.1 or higher ([Download](https://go.dev/dl))
-- **Node.js & npm** 14+ ([Download](https://nodejs.org))
-- **Wails CLI** (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
-- **Google Chrome/Chromium** (required for snapshot recording and replay)
-- **Git** (for cloning the repository)
-
-Optional:
-- SSH capability for remote monitoring
-- SMTP server credentials for email alerts
-
-## Installation & Setup
-
-### 1. Clone the Repository
-
+**Linux (Ubuntu/Debian):**
 ```bash
-git clone <repository-url>
-cd ApiWatcher
+# Download and extract
+wget https://go.dev/dl/go1.25.3.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.25.3.linux-amd64.tar.gz
+
+# Add to PATH
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+source ~/.bashrc
 ```
 
-### 2. Install Frontend Dependencies
-
+**macOS (Intel/x86_64):**
 ```bash
-cd frontend
-npm install
-cd ..
+# Download and extract
+curl -O https://go.dev/dl/go1.25.3.darwin-amd64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.25.3.darwin-amd64.tar.gz
+
+# Add to PATH
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**macOS (Apple Silicon/ARM64):**
+```bash
+# Download and extract
+curl -O https://go.dev/dl/go1.25.3.darwin-arm64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.25.3.darwin-arm64.tar.gz
+
+# Add to PATH
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**Verify installation:**
+```bash
+go version  # Should show: go version go1.25.3 ...
+```
+
+### 2. Install Chromium
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt-get update
+sudo apt-get install chromium-browser
+```
+
+**macOS:**
+```bash
+brew install chromium
 ```
 
 ### 3. Install Wails
@@ -66,194 +82,124 @@ cd ..
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 ```
 
-### 4. Build & Run
+Verify: `wails version`
 
-**Quick Start (Development):**
+### 4. Clone & Setup
+
 ```bash
-wails dev
+git clone <repository-url>
+cd ApiWatcher
+cd frontend
+npm install
+cd ..
+```
+
+## Running
+
+**Development (with start.sh):**
+```bash
+chmod +x start.sh
+./start.sh
 ```
 
 This will:
 - Build the daemon
-- Start the frontend dev server with hot reload
-- Launch the Wails application
+- Start the daemon on port 9876
+- Start the frontend dev server on port 9901
+- Launch Wails
 
 **Production Build:**
 ```bash
 wails build
 ```
 
-The compiled executable will be in the `build/` directory.
+## Quick Start
 
-### 5. Configuration (Optional)
+1. Run the app: `./start.sh`
+2. Choose **Local Mode** to monitor your machine
+3. Go to **Websites** tab and add URLs to monitor
+4. Go to **Settings** to configure:
+   - Worker sleep time (check interval in minutes)
+   - Headless browser mode (enable to hide browser windows)
+   - Email alerts (SMTP configuration)
 
-Create a `.env` file in the project root for SMTP email configuration:
+## Usage
 
-```env
-SMTP_HOST=mail.smtp2go.com
-SMTP_PORT=2525
-SMTP_USER=your-api-key
-SMTP_PASS=your-password
-SMTP_FROM=sender@example.com
-WORKER_SLEEP=10
-```
+### 1. Add Websites
+1. Go to **Websites** tab
+2. Add URLs you want to monitor
+3. Click **Save**
 
-Alternatively, configure SMTP settings through the application UI: **Settings → Email (SMTP)**.
+### 2. Record Snapshots (Optional)
+1. Navigate to **Snapshots** tab
+2. Select a website from the list
+3. Click **Start Recording**
+4. A browser window opens - perform your user interactions
+5. Press ENTER when done to save the snapshot
+
+### 3. Replay Snapshots
+1. Go to **Snapshots** tab
+2. Select a recorded snapshot
+3. Click **Replay** to watch it run automatically
+
+### 4. Start Background Monitoring
+1. Go to **Dashboard** tab
+2. Choose your websites to monitor
+3. Click **Start Monitoring**
+4. The app will check your websites periodically
+5. Browser windows will open based on your **Headless Browser Mode** setting in Settings
+
+## Settings
+
+- **Worker Sleep Time** - Minutes between checks (1-1440)
+- **Headless Browser Mode** - Hide browser windows during monitoring
+- **Email Alerts** - Configure SMTP for failure notifications
 
 ## Project Structure
 
 ```
 ApiWatcher/
-├── cmd/
-│   ├── apiwatcher-gui/        # GUI application entry point
-│   └── apiwatcher-daemon/     # Background daemon service
-├── frontend/                  # React application
-│   ├── src/
-│   │   ├── screens/          # Full-page components
-│   │   ├── components/       # Reusable React components
-│   │   ├── layouts/          # Page layouts
-│   │   ├── api.js           # Backend API wrapper
-│   │   └── App.jsx          # Root component
-│   ├── webpack.config.js     # Webpack configuration
-│   ├── tailwind.config.js    # TailwindCSS configuration
-│   └── package.json          # NPM dependencies
-├── internal/                  # Core Go packages
-│   ├── config/               # Settings and configuration
-│   ├── daemon/               # Monitoring daemon service
-│   ├── monitor/              # Monitoring workers
-│   ├── snapshot/             # Recording and replay logic
-│   ├── remote/               # SSH remote connections
-│   ├── email/                # Email notifications
-│   └── models/               # Data structures
-├── app.go                     # Main Wails app backend
-├── main.go                    # Application entry point
-├── go.mod & go.sum           # Go dependencies
-└── project.json              # Wails configuration
+├── cmd/                      # Entry points
+├── frontend/                 # React UI
+├── internal/                 # Core packages
+│   ├── config/              # Settings
+│   ├── daemon/              # Background service
+│   ├── monitor/             # Website checking
+│   ├── snapshot/            # Recording & replay
+│   ├── remote/              # SSH support
+│   └── email/               # Notifications
+├── app.go                    # Wails backend
+└── main.go                   # Entry point
 ```
-
-## Usage
-
-### Starting the Application
-
-1. Run `wails dev` for development or launch the compiled executable
-2. The application will start in **connection mode**
-3. Choose **Local Mode** to monitor your current machine, or **SSH Mode** to connect to a remote server
-
-### Recording a Snapshot
-
-1. Navigate to **Snapshots** tab
-2. Enter a website URL
-3. Click **Start Recording**
-4. A visible browser window will open
-5. Perform the interactions you want to record (clicks, form fills, navigation)
-6. When finished, press ENTER or click the finish button
-7. Your snapshot is saved and ready for replay
-
-### Replaying Snapshots
-
-1. Go to **Snapshots** tab
-2. Select a recorded snapshot
-3. Click **Replay**
-4. Watch as the browser automatically replays your recorded interactions
-5. Check the logs for any API errors detected during replay
-
-### Configuring Monitoring
-
-1. Navigate to **Websites** tab
-2. Add URLs to monitor
-3. Configure monitoring interval in **Settings → General Settings**
-4. Enable **Headless Browser Mode** to run recordings invisibly (Settings → General Settings)
-5. Set up email alerts in **Settings → Email (SMTP)**
-
-## Settings
-
-### General Settings
-- **Worker Sleep Time** - Minutes between monitoring cycles (1-1440, default: 10)
-- **Headless Browser Mode** - Run browser windows invisibly during recording and replay (default: off)
-
-### Email Settings
-Configure SMTP to receive email alerts when websites go down:
-- SMTP Host and Port
-- Username and Password
-- From and To email addresses
-
-## API Methods
-
-The Go backend exposes these methods to the React frontend:
-
-**Monitoring**
-- `StartMonitoring(websites)` - Begin monitoring URLs
-- `StopMonitoring()` - Stop monitoring
-- `GetDashboardData()` - Get statistics and status
-
-**Snapshots**
-- `StartRecording(url)` - Begin recording user interactions
-- `FinishRecording(recordingId)` - End recording
-- `ReplaySnapshot(id)` - Replay a snapshot
-- `ListSnapshots(url)` - List snapshots for a URL
-- `DeleteSnapshot(id)` - Delete a snapshot
-
-**Settings**
-- `SaveAppSettings(workerSleepTime, headlessBrowserMode)` - Save application settings
-- `GetAppSettings()` - Get current settings
-
-**Remote**
-- `ConnectToServer(host, username, password)` - SSH connection
-- `ListSSHProfiles()` - Get saved SSH profiles
 
 ## Troubleshooting
 
-**Chrome not found:**
-- Ensure Google Chrome/Chromium is installed and in PATH
-- On Linux: `sudo apt-get install chromium-browser` or `google-chrome`
-- On macOS: Chrome should be in `/Applications/Google Chrome.app`
-- On Windows: Chrome should be in Program Files
+**Chromium not found:**
+- Ensure chromium/chrome is installed and in PATH
+- Check: `which chromium-browser` or `which google-chrome`
 
-**SMTP errors:**
-- Verify credentials in Settings → Email (SMTP)
-- Check SMTP host and port are correct
-- Use app-specific passwords for Gmail or other providers
+**Wails not found:**
+- Run: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- Add `$HOME/go/bin` to PATH
 
-**Recording not appearing:**
-- Check that the snapshot directory exists: `~/.apiwatcher/snapshots/`
+**Port 9876 in use:**
+- Change daemon port or kill process using it
+
+**Settings not saving:**
+- Check `~/.url-checker/app-settings.json` exists
 - Verify file permissions
 
-**Daemon not connecting:**
-- Ensure daemon is running: Check `~/.apiwatcher/logs/daemon.log`
-- Verify port 9876 is not blocked
-- Check network connectivity for remote SSH connections
+## Data Storage
 
-## Development
-
-### Frontend Development
-```bash
-cd frontend
-npm run serve    # Start dev server on port 9901
-npm run build    # Build for production
-npm run lint     # Run ESLint
-```
-
-### Backend Development
-```bash
-go build -o apiwatcher-daemon ./cmd/apiwatcher-daemon/
-go test ./...    # Run tests
-```
-
-### Database
-Snapshots and configurations are stored in:
-- `~/.apiwatcher/snapshots/` - Snapshot recordings
-- `~/.apiwatcher/saved-configs/` - Monitoring configurations
-- `~/.apiwatcher/app-settings.json` - Application settings
+- `~/.url-checker/snapshots/` - Recordings
+- `~/.url-checker/saved-configs/` - Configurations
+- `~/.url-checker/app-settings.json` - Settings
 - `~/.apiwatcher/logs/` - Daemon logs
 
 ## License
 
-MIT License - See LICENSE file for details
-
-## Support
-
-For issues, feature requests, or questions, please open an issue on the repository.
+MIT - See LICENSE file
 
 ---
 
-**Made with ❤️ for website and API monitoring**
+Built by machines.
