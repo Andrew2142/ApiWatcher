@@ -10,7 +10,6 @@ A lightweight Go-Based API Monitoring and Replay System
 - Email alerts for failures
 - Dashboard with uptime statistics
 - SSH remote monitoring
-- Headless browser mode toggle
 
 ## Requirements
 
