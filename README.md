@@ -122,7 +122,7 @@ wails build
 2. Select a website from the list
 3. Click **Start Recording**
 4. A browser window opens - perform your user interactions
-5. Press ENTER when done to save the snapshot
+5. Click the finish recording button in the ui, once done.
 
 ### 3. Replay Snapshots
 1. Go to **Snapshots** tab
