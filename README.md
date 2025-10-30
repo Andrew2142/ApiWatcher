@@ -1,6 +1,6 @@
 # API Watcher
 
-A lightweight website and API monitoring application with interactive snapshot recording and replay capabilities.
+A lightweight Go-Based API Monitoring and Replay System
 
 ## Features
 
